@@ -30,17 +30,6 @@ export function getCurrentDateFormatted(): string {
   });
 }
 
-export function extractPotentialTokens(query: string): string[] {
-  const stopwords = new Set([
-    'the', 'and', 'for', 'with', 'analysis', 'technical', 'price', 
-    'token', 'coin', 'crypto', 'cryptocurrency', 'vs', 'comparison', 
-    'compare', 'latest', 'news', 'market', 'trends', '2025', '2024'
-  ]);
-  
-  const words = query.match(/\b[a-zA-Z0-9]{2,20}\b/g) || [];
-  return words.filter(w => !stopwords.has(w.toLowerCase()));
-}
-
 export async function batchProcessWithRateLimit<T, R>(
   items: T[],
   batchSize: number,
