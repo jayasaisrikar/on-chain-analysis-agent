@@ -32,6 +32,7 @@ export interface SynonymResponse {
 
 export class SynonymGeneratorService {
   private readonly systemPrompt: string;
+  private readonly pairTradingPrompt: string;
 
   constructor() {
     this.systemPrompt = `You are a helpful assistant specialized in cryptocurrency insights. Your task is to generate synonym search queries based on the user's question, but only if the question is related to cryptocurrencies.
@@ -139,10 +140,135 @@ Sorry, please ask about crypto-related insights.
 5. Focus on price analysis, market trends, factors, on-chain metrics, and current events
 6. IMPORTANT: Each query should focus on ONE specific asset, not combine multiple assets in the same query
 7. BE INCLUSIVE: Any mention of tokens, protocols, blockchains, DEXs, on-chain analysis, or crypto trading should be considered crypto-related`;
+
+    this.pairTradingPrompt = `You are a pair trading specialist focused on cryptocurrency correlation analysis. Generate search queries for analyzing relationships between crypto asset pairs.
+
+PAIR TRADING FOCUS AREAS:
+- Correlation analysis between assets
+- Spread analysis and mean reversion
+- Comparative price movements
+- Relative strength analysis
+- Sector rotation opportunities
+- Cross-asset arbitrage
+
+Today's date is ${getCurrentDateFormatted()}. Use current date when relevant.
+
+PAIR TRADING QUERY TYPES:
+1. Correlation queries: "Bitcoin Ethereum correlation", "BTC ETH price relationship"
+2. Spread analysis: "Bitcoin Ethereum spread analysis", "BTC ETH ratio trading"
+3. Relative performance: "Bitcoin vs Ethereum performance", "BTC ETH relative strength"
+4. Sector analysis: "DeFi tokens correlation", "Layer 1 crypto correlation"
+
+RESPONSE FORMAT:
+{
+  "1": "pair correlation query",
+  "2": "spread analysis query", 
+  "3": "relative performance query",
+  ...
+}
+
+EXAMPLES:
+
+Example 1 - Two Assets:
+User question: Bitcoin vs Ethereum pair trading analysis
+
+Response:
+{
+  "1": "Bitcoin Ethereum correlation analysis August 2025",
+  "2": "BTC ETH price spread mean reversion August 2025",
+  "3": "Bitcoin vs Ethereum relative strength August 2025"
+}
+
+Example 2 - Multiple Assets:
+User question: Correlation between Bitcoin, Ethereum and Solana
+
+Response:
+{
+  "1": "Bitcoin Ethereum correlation analysis August 2025",
+  "2": "Bitcoin Solana price relationship August 2025", 
+  "3": "Ethereum Solana correlation trading August 2025",
+  "4": "BTC ETH SOL trio correlation analysis August 2025"
+}
+
+INSTRUCTIONS:
+1. Generate 3-5 queries focused on PAIR RELATIONSHIPS, not individual assets
+2. Include correlation, spread, and relative analysis terms
+3. Use both full names and symbols for better search coverage
+4. Focus on trading relationships, not individual token analysis`;
+  }
+
+  private isPairTradingQuery(query: string): boolean {
+    const pairIndicators = [
+      'vs', 'versus', 'pair', 'correlation', 'spread', 'relative',
+      'compare', 'comparison', 'against', 'ratio', 'between'
+    ];
+    
+    const lowerQuery = query.toLowerCase();
+    return pairIndicators.some(indicator => lowerQuery.includes(indicator)) ||
+           (lowerQuery.split(' ').filter(word => 
+             ['and', '&', ','].includes(word) || 
+             word.match(/^(btc|eth|sol|ada|dot|link|uni|aave|comp|snx|matic|avax|near|atom|algo|fil|icp|xtz|egld|luna|ust|mir|anc|orion|cake|bake|alpha|reef|dodo|1inch|crv|bal|yfi|sushi|pickle|harvest|cream|badger|cover|rari|idle|mta|rook|bnt|knc|zrx|ren|lrc|storj|grt|nu|keep|rep|mkr|dai|usdc|usdt|busd|pax|tusd|gusd|husd|susd|dusd|frax|fei|lusd|mim|mai|dola|angle|rai|ohm|time|memo|klima|inv|fei|tribe|ondo|syrup|ice|jpeg|looks|blur|os|x2y2|gem|genie|foundation|async|super|friend|cyber|degen|higher|mfer|pepe|wojak|ape|bayc|mayc|azuki|clone|doodles|coolcats|veefriends|cryptopunks|fidenza|ringers|chromie|artblocks|async|foundation|superrare|makersplace|knownorigin|async|foundation)$/i)
+           ).length >= 2);
+  }
+
+  async generatePairTradingSynonyms(originalQuery: string): Promise<SynonymResponse> {
+    const timer = new Timer('Pair Trading Synonym Generation');
+    
+    try {
+      const agent = await AgentBuilder
+        .create("pair_trading_synonym_generator")
+        .withModel(openai(config.openai.model))
+        .withDescription("Specialized pair trading synonym generator for crypto correlation analysis")
+        .withInstruction(this.pairTradingPrompt)
+        .build();
+
+      const result = await agent.runner.ask(`Generate pair trading search queries for: "${originalQuery}"`);
+      const content = typeof result === 'string' ? result.trim() : JSON.stringify(result);
+      
+      console.log('🔗 Generated pair trading synonyms response:', content);
+      
+      let synonyms: string[] = [];
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const jsonData = JSON.parse(jsonMatch[0]);
+          for (const key in jsonData) {
+            if (jsonData.hasOwnProperty(key) && typeof jsonData[key] === 'string') {
+              const synonym = jsonData[key].trim();
+              if (synonym && synonym !== originalQuery) {
+                synonyms.push(synonym);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing pair trading synonym JSON:', error);
+        synonyms = [`${originalQuery} correlation analysis`, `${originalQuery} spread trading`, `${originalQuery} relative performance`];
+      }
+
+      timer.log();
+
+      return {
+        synonyms,
+        originalQuery
+      };
+    } catch (error) {
+      console.error('Failed to generate pair trading synonyms:', error);
+      timer.log();
+      return { 
+        synonyms: [`${originalQuery} correlation analysis`, `${originalQuery} spread trading`, `${originalQuery} relative performance`],
+        originalQuery
+      };
+    }
   }
 
 
   async generateSynonyms(originalQuery: string): Promise<SynonymResponse> {
+    if (this.isPairTradingQuery(originalQuery)) {
+      console.log('🔗 Detected pair trading query, using specialized synonym generation');
+      return this.generatePairTradingSynonyms(originalQuery);
+    }
+
     const timer = new Timer('Synonym Generation');
     
     try {

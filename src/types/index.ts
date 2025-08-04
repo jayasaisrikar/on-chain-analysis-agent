@@ -150,3 +150,43 @@ export interface ScrapingConfig {
   skipProblematicDomains: string[];
   fastMethods: string[];
 }
+
+export interface PairSignal {
+  id: string;
+  timestamp: string;
+  longAsset: AssetInfo;
+  shortAsset: AssetInfo;
+  signalType: 'mean_reversion' | 'correlation_breakdown' | 'fundamental_divergence';
+  confidence: number;
+  expectedDuration: '1d' | '1w' | '1m';
+  entryRatio: number;
+  targetRatio: number;
+  stopLossRatio: number;
+  reasoning: string;
+  historicalCorrelation: number;
+  currentCorrelation: number;
+  fundamentalCatalysts: string[];
+}
+
+export interface AssetInfo {
+  id: string;
+  symbol: string;
+  name: string;
+  currentPrice: number;
+}
+
+export interface CorrelationData {
+  asset1: string;
+  asset2: string;
+  period: '30d' | '90d' | '1y';
+  correlation: number;
+  priceRatio: number;
+  meanPriceRatio: number;
+  stdDeviation: number;
+  zscore: number;
+}
+
+export interface HistoricalPrice {
+  timestamp: number;
+  price: number;
+}

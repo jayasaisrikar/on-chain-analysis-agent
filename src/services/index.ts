@@ -3,3 +3,4 @@ export * from './scraper.js';
 export * from './market-data.js';
 export * from './prompt-builder.js';
 export * from './synonym-generator.js';
+export * from './correlation.js';

@@ -3,7 +3,7 @@ import { SearchService } from './services/search.js';
 import { WebScraper } from './services/scraper.js';
 import { MarketDataService } from './services/market-data.js';
 import { SynonymGeneratorService, SynonymResponse } from './services/synonym-generator.js';
-import { AnalysisGenerator } from './agents/index.js';
+import { AnalysisGenerator, PairTradingAnalyzer, PairSignal } from './agents/index.js';
 
 function getCurrentDateFormatted(): string {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -38,7 +38,7 @@ interface ScrapedContent {
   publishedDateString?: string;
 }
 
-function createAnalysisPrompt(scrapedContents: ScrapedContent[], synonymResponse: SynonymResponse, augmentedData: any): string {
+function createAnalysisPrompt(scrapedContents: ScrapedContent[], synonymResponse: SynonymResponse, augmentedData: any, pairSignals?: PairSignal[]): string {
   const contentSummary = scrapedContents.map((content, index) => 
     `${index + 1}. ${content.title}\nURL: ${content.url}\nContent: ${content.content.substring(0, 1000)}...`
   ).join('\n\n');
@@ -70,7 +70,29 @@ ${synonymResponse.synonyms.map((query, index) => `${index + 1}. ${query}`).join(
     }
   }
 
+  if (pairSignals && pairSignals.length > 0) {
+    prompt += `\n## PAIR TRADING SIGNALS:\n`;
+    pairSignals.forEach((signal, index) => {
+      prompt += `### Signal ${index + 1}: ${signal.longAsset.symbol.toUpperCase()} / ${signal.shortAsset.symbol.toUpperCase()}\n`;
+      prompt += `**Signal Type:** ${signal.signalType.replace('_', ' ')}\n`;
+      prompt += `**Confidence:** ${signal.confidence}/10\n`;
+      prompt += `**Strategy:** Long ${signal.longAsset.name}, Short ${signal.shortAsset.name}\n`;
+      prompt += `**Entry Ratio:** ${signal.entryRatio.toFixed(4)}\n`;
+      prompt += `**Target Ratio:** ${signal.targetRatio.toFixed(4)}\n`;
+      prompt += `**Stop Loss:** ${signal.stopLossRatio.toFixed(4)}\n`;
+      prompt += `**Expected Duration:** ${signal.expectedDuration}\n`;
+      prompt += `**Historical Correlation:** ${signal.historicalCorrelation.toFixed(3)}\n`;
+      prompt += `**Current Correlation:** ${signal.currentCorrelation.toFixed(3)}\n`;
+      prompt += `**Reasoning:** ${signal.reasoning}\n\n`;
+    });
+  }
+
   prompt += `\n## RESEARCH SOURCES & CONTENT:\n${contentSummary}\n\n## ANALYSIS REQUIREMENTS:\n- Provide specific price targets with confidence levels\n- Include risk-reward ratios\n- Mention key support/resistance levels with exact prices\n- Compare against Bitcoin and overall market trends\n- Include trading volume analysis\n- Assess liquidity and market depth\n- Provide both bullish and bearish scenarios\n- Include correlation analysis with major crypto assets\n- Mention any regulatory or fundamental catalysts\n- Provide actionable entry/exit strategies with stop-losses`;
+  
+  if (pairSignals && pairSignals.length > 0) {
+    prompt += `\n- Analyze and validate the pair trading signals provided\n- Explain the correlation breakdown and mean reversion opportunities\n- Provide risk management recommendations for pair trades`;
+  }
+  
   return prompt;
 }
 
@@ -191,7 +213,26 @@ async function main() {
   
   const augmentedData = await marketDataService.fetchDetailedCoinData(detectedAssets);
   
-  const analysisPrompt = createAnalysisPrompt(scrapedContents, synonymResponse, augmentedData);
+  let pairSignals: PairSignal[] = [];
+  if (detectedAssets.length >= 2) {
+    console.log(`\n🔗 Analyzing ${detectedAssets.length} assets for pair trading opportunities...`);
+    const pairAnalyzer = new PairTradingAnalyzer();
+    await pairAnalyzer.setup();
+    
+    const assetIds = detectedAssets.map(asset => asset.id);
+    pairSignals = await pairAnalyzer.analyzeMultiplePairs(assetIds);
+    
+    if (pairSignals.length > 0) {
+      console.log(`✅ Found ${pairSignals.length} pair trading signal${pairSignals.length > 1 ? 's' : ''}`);
+      pairSignals.forEach((signal, index) => {
+        console.log(`   ${index + 1}. ${signal.signalType.toUpperCase()}: ${signal.longAsset.symbol}/${signal.shortAsset.symbol} (${signal.confidence}/10)`);
+      });
+    } else {
+      console.log('❌ No significant pair trading opportunities detected');
+    }
+  }
+  
+  const analysisPrompt = createAnalysisPrompt(scrapedContents, synonymResponse, augmentedData, pairSignals);
   const finalAnalysis = await generateFinalAnalysis(analysisPrompt);
   
   timer.log();

@@ -5,6 +5,8 @@ import { config } from "../config.js";
 import { QueryValidationResult, SynonymResponse } from "../types/index.js";
 import { PerformanceTimer, getCurrentDateFormatted } from "../utils/index.js";
 
+export * from './pair-trading.js';
+
 /**
  * Validates and sanitizes user queries for crypto relevance
  */
