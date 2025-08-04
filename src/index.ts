@@ -3,6 +3,7 @@ import { SearchService } from './services/search.js';
 import { WebScraper } from './services/scraper.js';
 import { MarketDataService } from './services/market-data.js';
 import { SynonymGeneratorService, SynonymResponse } from './services/synonym-generator.js';
+import { AnalysisGenerator } from './agents/index.js';
 
 function getCurrentDateFormatted(): string {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -75,52 +76,8 @@ ${synonymResponse.synonyms.map((query, index) => `${index + 1}. ${query}`).join(
 
 async function generateFinalAnalysis(analysisPrompt: string): Promise<string> {
   try {
-    const { AgentBuilder } = await import("@iqai/adk");
-    const { google } = await import("@ai-sdk/google");
-    
-    const analysisAgent = await AgentBuilder
-      .create("crypto_analysis_agent")
-      .withModel(google("gemini-2.0-flash-exp"))
-      .withDescription("Professional cryptocurrency analysis expert following industry standards")
-      .withInstruction(`You are an elite DeFi analyst at a $10B crypto fund. Generate actionable alpha with precision:
-
-## OUTPUT FORMAT:
-**EXECUTIVE SUMMARY** (30 words max)
-- Risk/Reward ratio | Conviction level | Key catalyst
-
-**TECHNICALS** 
-- Current: Price/RSI/MACD/Volume trend
-- Levels: Next support/resistance with % distance
-- Signal: Primary setup (breakout/reversal/continuation)
-
-**CATALYSTS & SENTIMENT**
-- Fundamental driver | On-chain flow | Market positioning
-
-**RISK MATRIX**
-- Volatility tier | Liquidity score | Correlation risk
-- Max loss scenario with probability
-
-**TARGETS** (Next 7/30/90 days)
-- Bull case: Price + probability + trigger
-- Base case: Price + probability  
-- Bear case: Price + probability + invalidation
-
-**EXECUTION**
-- Entry zone | Stop loss | Take profit levels
-- Position sizing | Risk management rules
-
-## REQUIREMENTS:
-- Every number must be specific and actionable
-- Include confidence scores (1-10)
-- Flag any data quality issues
-- Maximum 200 words per token analysis
-- Focus on asymmetric opportunities
-
-Generate institutional-grade alpha, not generic TA commentary.`)
-      .build();
-
-    const result = await analysisAgent.runner.ask(analysisPrompt);
-    return typeof result === 'string' ? result : JSON.stringify(result);
+    const analysisGenerator = new AnalysisGenerator();
+    return await analysisGenerator.generateFinalAnalysis(analysisPrompt);
   } catch (error) {
     console.error('Failed to generate analysis:', error);
     return 'Analysis generation failed.';

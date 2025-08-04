@@ -1,5 +1,7 @@
 import "dotenv/config";
+import { AgentBuilder } from "@iqai/adk";
 import { openai } from "@ai-sdk/openai";
+import { config } from "../config.js";
 
 function getCurrentDateFormatted(): string {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -139,25 +141,21 @@ Sorry, please ask about crypto-related insights.
 7. BE INCLUSIVE: Any mention of tokens, protocols, blockchains, DEXs, on-chain analysis, or crypto trading should be considered crypto-related`;
   }
 
-  /**
-   * Generates synonym search queries for crypto analysis
-   * @param originalQuery The original user query
-   * @returns Promise<SynonymResponse> containing synonyms array and original query
-   */
+
   async generateSynonyms(originalQuery: string): Promise<SynonymResponse> {
     const timer = new Timer('Synonym Generation');
     
     try {
-      const { generateText } = await import("ai");
-      const result = await generateText({
-        model: openai('gpt-4o-mini'),
-        messages: [
-          { role: 'system', content: this.systemPrompt },
-          { role: 'user', content: `Generate synonym search queries for: "${originalQuery}"` }
-        ]
-      });
+      const agent = await AgentBuilder
+        .create("synonym_generator")
+        .withModel(openai(config.openai.model))
+        .withDescription("Creative cryptocurrency research query generator specialized in generating diverse search queries for comprehensive crypto analysis")
+        .withInstruction(this.systemPrompt)
+        .build();
+
+      const result = await agent.runner.ask(`Generate synonym search queries for: "${originalQuery}"`);
+      const content = typeof result === 'string' ? result.trim() : JSON.stringify(result);
       
-      const content = result.text.trim();
       console.log('🔍 Generated synonyms response:', content);
       
       let synonyms: string[] = [];
@@ -213,16 +211,15 @@ If the query is crypto-related, return just the clean, safe, crypto-related quer
 If the query is NOT crypto-related, return exactly: "Sorry, please ask about crypto-related insights."`;
 
     try {
-      const { generateText } = await import("ai");
-      const result = await generateText({
-        model: openai('gpt-4-turbo'),
-        messages: [
-          { role: 'system', content: validationPrompt },
-          { role: 'user', content: query }
-        ]
-      });
-      
-      const sanitizedQuery = result.text.trim();
+      const agent = await AgentBuilder
+        .create("query_validator")
+        .withModel(openai(config.openai.model))
+        .withDescription("Security-focused query sanitizer and crypto-relevance validator")
+        .withInstruction(validationPrompt)
+        .build();
+
+      const result = await agent.runner.ask(query);
+      const sanitizedQuery = typeof result === 'string' ? result.trim() : JSON.stringify(result);
       const isValid = !sanitizedQuery.includes("Sorry, please ask about crypto-related insights.");
       
       timer.log();
