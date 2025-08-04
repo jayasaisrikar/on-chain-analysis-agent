@@ -1,8 +1,8 @@
 import "dotenv/config";
-import { openai } from "@ai-sdk/openai";
 import { SearchService } from './services/search.js';
 import { WebScraper } from './services/scraper.js';
 import { MarketDataService } from './services/market-data.js';
+import { SynonymGeneratorService, SynonymResponse } from './services/synonym-generator.js';
 
 function getCurrentDateFormatted(): string {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -28,34 +28,6 @@ class Timer {
 
 const userQuery = process.env.USER_QUERY?.replace(/^"|"$/g, '') || process.argv[2] || "Technical analysis on Shiba Inu and PEAR Protocol";
 
-async function sanitizeAndValidateQuery(query: string): Promise<{ isValid: boolean; sanitizedQuery: string }> {
-  const systemPrompt = `Check if the query is about cryptocurrencies. If yes, return the clean query. If not, return "Sorry, please ask about crypto-related insights."`;
-  
-  try {
-    const { generateText } = await import("ai");
-    const result = await generateText({
-      model: openai('gpt-4-turbo'),
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: query }
-      ]
-    });
-    
-    const sanitizedQuery = result.text.trim();
-    const isValid = !sanitizedQuery.includes("Sorry, please ask about crypto-related insights.");
-    return { isValid, sanitizedQuery };
-  } catch (error) {
-    console.error('Query validation failed:', error);
-    return { isValid: false, sanitizedQuery: "Sorry, please ask about crypto-related insights." };
-  }
-}
-
-const systemPrompt = `Generate 3 search queries for cryptocurrency research. Today is ${getCurrentDateFormatted()}. Return JSON format: {"1": "query1", "2": "query2", "3": "query3"}`;
-
-interface SynonymResponse {
-  [key: string]: string;
-}
-
 interface ScrapedContent {
   url: string;
   title: string;
@@ -65,32 +37,17 @@ interface ScrapedContent {
   publishedDateString?: string;
 }
 
-async function generateSynonyms(originalQuery: string): Promise<SynonymResponse> {
-  try {
-    const { generateText } = await import("ai");
-    const result = await generateText({
-      model: openai('gpt-4-turbo'),
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: originalQuery }
-      ]
-    });
-    return JSON.parse(result.text);
-  } catch (error) {
-    console.error('Failed to generate synonyms:', error);
-    return { "1": originalQuery };
-  }
-}
-
-function createAnalysisPrompt(scrapedContents: ScrapedContent[], synonymQueries: SynonymResponse, augmentedData: any): string {
+function createAnalysisPrompt(scrapedContents: ScrapedContent[], synonymResponse: SynonymResponse, augmentedData: any): string {
   const contentSummary = scrapedContents.map((content, index) => 
     `${index + 1}. ${content.title}\nURL: ${content.url}\nContent: ${content.content.substring(0, 1000)}...`
   ).join('\n\n');
 
   let prompt = `Based on the following information, provide a comprehensive crypto analysis:
 
-SEARCH QUERIES:
-${Object.entries(synonymQueries).map(([key, query]) => `${key}. ${query}`).join('\n')}`;
+ORIGINAL QUERY: ${synonymResponse.originalQuery}
+
+SEARCH QUERIES USED:
+${synonymResponse.synonyms.map((query, index) => `${index + 1}. ${query}`).join('\n')}`;
 
   if (augmentedData && Object.keys(augmentedData).length > 0) {
     prompt += `\n\nLIVE MARKET DATA (from CoinGecko API):\n`;
@@ -110,15 +67,18 @@ ${Object.entries(synonymQueries).map(([key, query]) => `${key}. ${query}`).join(
 
 async function generateFinalAnalysis(analysisPrompt: string): Promise<string> {
   try {
-    const { generateText } = await import("ai");
-    const result = await generateText({
-      model: openai('gpt-4o-mini'),
-      messages: [
-        { role: 'system', content: 'Provide comprehensive cryptocurrency analysis based on the provided data.' },
-        { role: 'user', content: analysisPrompt }
-      ]
-    });
-    return result.text;
+    const { AgentBuilder } = await import("@iqai/adk");
+    const { openai } = await import("@ai-sdk/openai");
+    
+    const analysisAgent = await AgentBuilder
+      .create("crypto_analysis_agent")
+      .withModel(openai("gpt-4o-mini"))
+      .withDescription("Comprehensive cryptocurrency analysis expert")
+      .withInstruction("You are a professional cryptocurrency analyst. Provide comprehensive, actionable cryptocurrency analysis based on the provided data. Include technical analysis, market sentiment, key insights, and actionable recommendations. Structure your response with clear sections and use markdown formatting.")
+      .build();
+
+    const result = await analysisAgent.runner.ask(analysisPrompt);
+    return typeof result === 'string' ? result : JSON.stringify(result);
   } catch (error) {
     console.error('Failed to generate analysis:', error);
     return 'Analysis generation failed.';
@@ -137,15 +97,18 @@ async function main() {
   console.log(`🔍 Search Engine: ${searchEngine.toUpperCase()}`);
   console.log(`🚀 Starting crypto analysis for: "${userQuery}"`);
   
-  const validation = await sanitizeAndValidateQuery(userQuery);
+  // Initialize services
+  const synonymGeneratorService = new SynonymGeneratorService();
+  const marketDataService = new MarketDataService();
+  
+  // Validate query
+  const validation = await synonymGeneratorService.validateCryptoQuery(userQuery);
   if (!validation.isValid) {
     console.log(validation.sanitizedQuery);
     return;
   }
   
   const timer = new Timer('Total Analysis');
-  
-  const marketDataService = new MarketDataService();
   
   console.log('📦 Setting up knowledge base from CoinGecko...');
   await marketDataService.setupKnowledgeBase();
@@ -173,22 +136,25 @@ async function main() {
   const detectedAssets = detectionResult as Array<{ name: string; id: string; symbol: string }>;
   console.log(`🪙 Detected ${detectedAssets.length} relevant coins`);
   
-  const synonyms = await generateSynonyms(validation.sanitizedQuery);
-  console.log(`📝 Generated ${Object.keys(synonyms).length} search queries`);
+  // Generate synonyms using the service
+  const synonymResponse = await synonymGeneratorService.generateSynonyms(validation.sanitizedQuery);
+  console.log(`📝 Generated ${synonymResponse.synonyms.length} search queries`);
   
   const searchService = new SearchService();
   let searchResults: any;
   
+  const allQueries = [validation.sanitizedQuery, ...synonymResponse.synonyms];
+  
   switch (searchEngine) {
     case 'exa':
-      searchResults = await searchService.searchExaOnly(Object.values(synonyms));
+      searchResults = await searchService.searchExaOnly(allQueries);
       break;
     case 'tavily':
-      searchResults = await searchService.searchTavilyOnly(Object.values(synonyms));
+      searchResults = await searchService.searchTavilyOnly(allQueries);
       break;
     case 'dual':
     default:
-      searchResults = await searchService.searchDualEngine(Object.values(synonyms));
+      searchResults = await searchService.searchDualEngine(allQueries);
       break;
   }
   
@@ -216,7 +182,7 @@ async function main() {
   
   const augmentedData = await marketDataService.fetchDetailedCoinData(detectedAssets);
   
-  const analysisPrompt = createAnalysisPrompt(scrapedContents, synonyms, augmentedData);
+  const analysisPrompt = createAnalysisPrompt(scrapedContents, synonymResponse, augmentedData);
   const finalAnalysis = await generateFinalAnalysis(analysisPrompt);
   
   timer.log();

@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { AgentBuilder } from "@iqai/adk";
 import { openai } from "@ai-sdk/openai";
+import { removeStopwords, eng } from 'stopword';
 import { config } from "../config.js";
 
 interface MarketData {
@@ -73,7 +74,7 @@ async function fetchFilteredMarketData({
 }
 
 export async function getCachedKnowledgeBase() {
-  const CACHE_FILE = 'data/cache/knowledge_base_complete.json';
+  const CACHE_FILE = 'data/cache/knowledge_base_filtered.json';
   const CACHE_TTL = 30 * 60 * 1000;
   
   const fs = await import('fs/promises');
@@ -84,7 +85,7 @@ export async function getCachedKnowledgeBase() {
     
     if (!isExpired) {
       const cached = JSON.parse(await fs.readFile(CACHE_FILE, 'utf8'));
-      console.log(`✅ Using cached knowledge base (${cached.filtered.length} filtered, ${cached.unfiltered.length} total coins) - Cache age: ${Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60))} minutes`);
+      console.log(`✅ Using cached knowledge base (${cached.length} filtered coins) - Cache age: ${Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60))} minutes`);
       return cached;
     } else {
       console.log('🔄 Cache expired, fetching fresh data...');
@@ -93,11 +94,11 @@ export async function getCachedKnowledgeBase() {
     console.log('📦 No cache found, creating fresh knowledge base...');
   }
   
-  const freshData = await setupCompleteKnowledgeBase();
+  const freshData = await setupFilteredKnowledgeBase();
   
   try {
     await fs.writeFile(CACHE_FILE, JSON.stringify(freshData, null, 2));
-    console.log('💾 Complete knowledge base cached for future runs');
+    console.log('💾 Filtered knowledge base cached for future runs');
   } catch (error: any) {
     console.warn('⚠️ Could not cache knowledge base:', error.message);
   }
@@ -105,38 +106,30 @@ export async function getCachedKnowledgeBase() {
   return freshData;
 }
 
-async function setupCompleteKnowledgeBase() {
+async function setupFilteredKnowledgeBase() {
   try {
-    console.log("Setting up complete knowledge base: fetching all CoinGecko assets...");
+    console.log("Setting up filtered knowledge base: fetching high-quality CoinGecko assets...");
     const apiKey = process.env.COINGECKO_API_KEY;
     if (!apiKey) {
       throw new Error('❌ COINGECKO_API_KEY environment variable not set.');
     }
     
-    console.log("Fetching all market data...");
-    const allMarketData = await fetchFilteredMarketData({ 
+    console.log("Fetching filtered market data (>$1M market cap, >$10K volume)...");
+    const filteredMarketData = await fetchFilteredMarketData({ 
       apiKey, 
-      minMarketCap: 0, 
-      minVolume: 0 
+      minMarketCap: 1_000_000, 
+      minVolume: 10_000 
     });
 
-    console.log("Applying filters for high-quality assets...");
-    const filteredMarketData = allMarketData.filter(coin => 
-      coin.market_cap >= 1_000_000 && coin.total_volume >= 10_000
-    );
+    console.log(`✅ Retrieved ${filteredMarketData.length} high-quality coins (market cap >= $1M and volume >= $10K)`);
 
-    console.log(`✅ Retrieved ${allMarketData.length} total coins, ${filteredMarketData.length} filtered coins (market cap >= $1M and volume >= $10K)`);
-
-    const mapCoinData = (coins: any[]) => coins.map(coin => ({
+    const filteredCoins = filteredMarketData.map(coin => ({
       id: coin.id,
       symbol: coin.symbol,
       name: coin.name
     }));
 
-    return {
-      filtered: mapCoinData(filteredMarketData),
-      unfiltered: mapCoinData(allMarketData)
-    };
+    return filteredCoins;
   } catch (error) {
     console.error("❌ Fatal Error: Could not fetch CoinGecko asset list. The application cannot continue.");
     process.exit(1);
@@ -285,7 +278,7 @@ No explanations, just the decision.`;
 
 export async function retrieveCoinIDs(
   potentialTokens: string[],
-  knowledgeBase: { filtered: Array<{ id: string; symbol: string; name: string }>; unfiltered: Array<{ id: string; symbol: string; name: string }> }
+  knowledgeBase: Array<{ id: string; symbol: string; name: string }>
 ): Promise<Array<{ name: string; id: string; symbol: string }> | { error: string; suggestions?: Array<{ name: string; id: string; symbol: string }> }> {
   console.log('🔍 Searching for tokens:', potentialTokens);
 
@@ -293,8 +286,8 @@ export async function retrieveCoinIDs(
     return [];
   }
 
-  // Search only in filtered data (no fallback to unfiltered)
-  const matches = findTokenMatches(potentialTokens, knowledgeBase.filtered, 'filtered');
+  // Search in filtered data
+  const matches = findTokenMatches(potentialTokens, knowledgeBase, 'filtered');
   
   if (matches.length === 0) {
     console.log('❌ No matches found in filtered knowledge base');
@@ -351,21 +344,38 @@ export async function fetchDetailedCoinData(detectedAssets: Array<{ id: string; 
 
 export function extractPotentialTokens(query: string | undefined | null): string[] {
   if (typeof query !== 'string') return [];
-  const stopwords = new Set(['the','and','for','with','analysis','technical','price','token','coin','crypto','cryptocurrency','vs','comparison','compare','latest','news','market','trends','july','august','september','october','november','december','2025','2024','2023','2022','2021','2020']);
+  
+  // Use regex to extract words (alphanumeric, 2-20 characters)
   const words = query.match(/\b[a-zA-Z0-9]{2,20}\b/g) || [];
-  return words.filter(w => !stopwords.has(w.toLowerCase()));
+  
+  // Remove English stopwords using industry-standard library
+  const withoutStopwords = removeStopwords(words, eng);
+  
+  // Additional domain-specific filters for crypto analysis
+  const cryptoStopwords = [
+    'analysis', 'technical', 'price', 'token', 'coin', 'crypto', 'cryptocurrency', 
+    'vs', 'comparison', 'compare', 'latest', 'news', 'market', 'trends', 'about', 
+    'please', 'give', 'show', 'tell', 'explain', 'current', 'recent'
+  ];
+  
+  // Filter out crypto-specific stopwords (case-insensitive)
+  const filtered = withoutStopwords.filter(word => 
+    !cryptoStopwords.includes(word.toLowerCase())
+  );
+  
+  return filtered;
 }
 
 export class MarketDataService {
-  private knowledgeBase: { filtered: Array<{ id: string; symbol: string; name: string }>; unfiltered: Array<{ id: string; symbol: string; name: string }> } = { filtered: [], unfiltered: [] };
+  private knowledgeBase: Array<{ id: string; symbol: string; name: string }> = [];
 
   async setupKnowledgeBase() {
     this.knowledgeBase = await getCachedKnowledgeBase();
-    console.log(`🧠 Knowledge base loaded with ${this.knowledgeBase.filtered.length} filtered assets.`);
+    console.log(`🧠 Knowledge base loaded with ${this.knowledgeBase.length} filtered assets.`);
   }
 
   async retrieveCoinIDs(query: string) {
-    if (this.knowledgeBase.filtered.length === 0) {
+    if (this.knowledgeBase.length === 0) {
         throw new Error("Knowledge base not initialized. Call setupKnowledgeBase() first.");
     }
     const potentialTokens = extractPotentialTokens(query);
