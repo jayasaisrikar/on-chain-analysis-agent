@@ -50,31 +50,77 @@ SEARCH QUERIES USED:
 ${synonymResponse.synonyms.map((query, index) => `${index + 1}. ${query}`).join('\n')}`;
 
   if (augmentedData && Object.keys(augmentedData).length > 0) {
-    prompt += `\n\nLIVE MARKET DATA (from CoinGecko API):\n`;
+    prompt += `\n\n## LIVE MARKET DATA (CoinGecko API - ${getCurrentDateFormatted()}):\n`;
     for (const id in augmentedData) {
       const coin = augmentedData[id];
-      prompt += `### ${coin.name} (${coin.symbol.toUpperCase()})\n`;
-      prompt += `Current Price: $${coin.current_price}\n`;
-      prompt += `Market Cap: $${coin.market_cap?.toLocaleString?.() ?? coin.market_cap}\n`;
-      prompt += `24h Change: ${coin.price_change_24h?.toFixed?.(2) ?? coin.price_change_24h}%\n`;
-      prompt += `24h High/Low: $${coin.high_24h} / $${coin.low_24h}\n\n`;
+      const marketCap = coin.market_cap ? `$${(coin.market_cap / 1000000).toFixed(2)}M` : 'N/A';
+      const volume24h = coin.total_volume ? `$${(coin.total_volume / 1000000).toFixed(2)}M` : 'N/A';
+      const priceChange = coin.price_change_24h ? `${coin.price_change_24h > 0 ? '+' : ''}${coin.price_change_24h.toFixed(2)}%` : 'N/A';
+      
+      prompt += `### ${coin.name} (${coin.symbol.toUpperCase()}) - ${coin.id}\n`;
+      prompt += `**Current Price:** $${coin.current_price}\n`;
+      prompt += `**Market Cap:** ${marketCap}\n`;
+      prompt += `**24h Volume:** ${volume24h}\n`;
+      prompt += `**24h Change:** ${priceChange}\n`;
+      prompt += `**24h Range:** $${coin.low_24h} - $${coin.high_24h}\n`;
+      prompt += `**All-Time High:** $${coin.ath || 'N/A'} (${coin.ath_date ? new Date(coin.ath_date).toLocaleDateString() : 'N/A'})\n`;
+      prompt += `**Circulating Supply:** ${coin.circulating_supply ? `${(coin.circulating_supply / 1000000).toFixed(2)}M ${coin.symbol.toUpperCase()}` : 'N/A'}\n`;
+      prompt += `**Market Cap Rank:** #${coin.market_cap_rank || 'N/A'}\n\n`;
     }
   }
 
-  prompt += `\nSCRAPED CONTENT:\n${contentSummary}\n\nProvide analysis including price trends, market sentiment, and key insights.`;
+  prompt += `\n## RESEARCH SOURCES & CONTENT:\n${contentSummary}\n\n## ANALYSIS REQUIREMENTS:\n- Provide specific price targets with confidence levels\n- Include risk-reward ratios\n- Mention key support/resistance levels with exact prices\n- Compare against Bitcoin and overall market trends\n- Include trading volume analysis\n- Assess liquidity and market depth\n- Provide both bullish and bearish scenarios\n- Include correlation analysis with major crypto assets\n- Mention any regulatory or fundamental catalysts\n- Provide actionable entry/exit strategies with stop-losses`;
   return prompt;
 }
 
 async function generateFinalAnalysis(analysisPrompt: string): Promise<string> {
   try {
     const { AgentBuilder } = await import("@iqai/adk");
-    const { openai } = await import("@ai-sdk/openai");
+    const { google } = await import("@ai-sdk/google");
     
     const analysisAgent = await AgentBuilder
       .create("crypto_analysis_agent")
-      .withModel(openai("gpt-4o-mini"))
-      .withDescription("Comprehensive cryptocurrency analysis expert")
-      .withInstruction("You are a professional cryptocurrency analyst. Provide comprehensive, actionable cryptocurrency analysis based on the provided data. Include technical analysis, market sentiment, key insights, and actionable recommendations. Structure your response with clear sections and use markdown formatting.")
+      .withModel(google("gemini-2.0-flash-exp"))
+      .withDescription("Professional cryptocurrency analysis expert following industry standards")
+      .withInstruction(`You are a professional cryptocurrency analyst providing institutional-grade analysis. Follow these industry standards:
+
+## ANALYSIS STRUCTURE:
+1. **Executive Summary** (2-3 key points)
+2. **Technical Analysis** with specific metrics
+3. **Fundamental Analysis** (when data available)
+4. **Market Sentiment & On-chain Metrics**
+5. **Risk Assessment** with specific risk levels
+6. **Price Targets & Timeframes**
+7. **Trading Strategy** (short/medium/long term)
+
+## TECHNICAL INDICATORS TO INCLUDE:
+- RSI (14-day) with specific values and interpretation
+- MACD signals and crossovers
+- Moving Averages (20, 50, 200 SMA/EMA)
+- Support/Resistance levels with specific price points
+- Volume analysis and trends
+- Bollinger Bands position
+- Fibonacci retracement levels (when applicable)
+
+## RISK METRICS:
+- Volatility metrics (30-day, 90-day)
+- Maximum drawdown analysis
+- Correlation with BTC/market
+- Liquidity assessment
+
+## PRICE TARGETS:
+- Short-term (1-7 days): Specific price ranges
+- Medium-term (1-4 weeks): Target levels
+- Long-term (1-3 months): Trend direction
+
+## FORMATTING:
+- Use clear section headers with markdown
+- Include specific numerical targets
+- Provide confidence levels (High/Medium/Low)
+- Use bullet points for actionable insights
+- Include relevant charts/patterns mentioned
+
+Provide comprehensive, actionable analysis with specific price targets and confidence levels.`)
       .build();
 
     const result = await analysisAgent.runner.ask(analysisPrompt);
