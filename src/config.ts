@@ -19,8 +19,7 @@ export const config = {
     apiKey: process.env.TAVILY_API_KEY || ""
   },
   query: {
-    default: "Technical analysis on Shiba Inu and PEAR Protocol",
-    userQuery: process.env.USER_QUERY || process.argv[2] || "Technical analysis on Shiba Inu and PEAR Protocol"
+    userQuery: process.env.USER_QUERY || process.argv[2] || ""
   },
   search: {
     exaResultsPerQuery: 3,

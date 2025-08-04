@@ -136,7 +136,6 @@ async function setupFilteredKnowledgeBase() {
   }
 }
 
-// Simple exact matching function - will be replaced with LLM-based matching
 function findTokenMatches(
   potentialTokens: string[],
   assetList: Array<{ id: string; symbol: string; name: string }>,
@@ -148,7 +147,6 @@ function findTokenMatches(
   for (const token of potentialTokens) {
     const lowerToken = token.toLowerCase();
     
-    // Skip common words
     const commonWords = ['protocol', 'token', 'coin', 'network', 'chain', 'finance'];
     if (commonWords.includes(lowerToken)) {
       console.log(`⏭️ Skipping common word: ${lowerToken}`);
@@ -159,7 +157,6 @@ function findTokenMatches(
       const assetName = asset.name.toLowerCase();
       const assetSymbol = asset.symbol.toLowerCase();
       
-      // Exact symbol match
       if (assetSymbol === lowerToken && !foundIds.has(asset.id)) {
         matches.push(asset);
         foundIds.add(asset.id);
@@ -167,7 +164,6 @@ function findTokenMatches(
         break;
       }
       
-      // Exact name match
       if (assetName === lowerToken && !foundIds.has(asset.id)) {
         matches.push(asset);
         foundIds.add(asset.id);
@@ -175,7 +171,6 @@ function findTokenMatches(
         break;
       }
       
-      // Partial name match (if token is found within asset name)
       if (assetName.includes(lowerToken) && lowerToken.length > 2 && !foundIds.has(asset.id)) {
         matches.push(asset);
         foundIds.add(asset.id);
@@ -188,16 +183,14 @@ function findTokenMatches(
   return matches;
 }
 
-// LLM-based token matching using IQAI ADK with GPT-4o-mini (fast and efficient)
 async function calculateMatchPercentageWithLLM(
   userTokens: string[],
   foundMatches: Array<{ name: string; id: string; symbol: string }>
-): Promise<{ isValid: boolean; suggestions?: Array<{ name: string; id: string; symbol: string }> }> {
+): Promise<{ isValid: boolean; confidence?: number; suggestions?: Array<{ name: string; id: string; symbol: string }> }> {
   if (foundMatches.length === 0) {
     return { isValid: false };
   }
 
-  // Create a detailed prompt for the LLM to analyze token matches
   const matchAnalysisPrompt = `You are an expert cryptocurrency analyst specializing in token identification and semantic matching.
 
 TASK: Analyze if the user's query tokens semantically match the found cryptocurrency tokens with sufficient confidence for financial analysis.
@@ -229,42 +222,53 @@ DECISION THRESHOLD: 60% confidence
 - Prioritize user intent over strict string matching
 
 RESPONSE FORMAT:
-Respond with EXACTLY one word:
-- "VALID" if confidence ≥ 60%
-- "INVALID" if confidence < 60%
+Respond with EXACTLY this format:
+CONFIDENCE: [percentage]%
+DECISION: [VALID/INVALID]
 
-No explanations, just the decision.`;
+Example responses:
+CONFIDENCE: 85%
+DECISION: VALID
+
+CONFIDENCE: 35%
+DECISION: INVALID
+
+Provide the confidence percentage (0-100%) based on semantic matching quality, then your decision.`;
 
   try {
-    // Use GPT-4o-mini for fast and accurate text similarity analysis
     const agent = await AgentBuilder
       .create("crypto_token_matcher")
-      .withModel(openai(config.openai.model)) // Uses gpt-4o-mini (fast & efficient)
+      .withModel(openai(config.openai.model))
       .withDescription("Expert cryptocurrency token semantic matching analyst")
       .withInstruction("You are a cryptocurrency expert who determines if user queries match found tokens with high semantic confidence.")
       .build();
 
     const result = await agent.runner.ask(matchAnalysisPrompt);
-    const response = typeof result === 'string' ? result.trim().toUpperCase() : 'INVALID';
+    const response = typeof result === 'string' ? result.trim() : 'CONFIDENCE: 0%\nDECISION: INVALID';
     
-    const isValid = response.includes('VALID');
+    const confidenceMatch = response.match(/CONFIDENCE:\s*(\d+)%/i);
+    const decisionMatch = response.match(/DECISION:\s*(VALID|INVALID)/i);
     
-    console.log(`🤖 LLM Semantic Analysis: ${response} (Confidence: ${isValid ? 'HIGH' : 'LOW'})`);
+    const confidencePercentage = confidenceMatch ? parseInt(confidenceMatch[1]) : 0;
+    const decision = decisionMatch ? decisionMatch[1].toUpperCase() : 'INVALID';
+    
+    const isValid = decision === 'VALID' && confidencePercentage >= 60;
+    
+    console.log(`🤖 LLM Semantic Analysis: ${decision} (Confidence: ${confidencePercentage}%)`);
     
     if (!isValid) {
-      // Return top 3 matches as suggestions when confidence is low
       const suggestions = foundMatches.slice(0, 3);
       return { 
         isValid: false, 
+        confidence: confidencePercentage,
         suggestions 
       };
     }
     
-    return { isValid: true };
+    return { isValid: true, confidence: confidencePercentage };
     
   } catch (error) {
     console.error('⚠️ LLM analysis failed, falling back to conservative validation:', error);
-    // Conservative fallback: only accept exact symbol/name matches
     const hasExactMatch = foundMatches.some(match => 
       userTokens.some(token => 
         token.toLowerCase() === match.symbol.toLowerCase() || 
@@ -272,7 +276,7 @@ No explanations, just the decision.`;
       )
     );
     console.log(`🔄 Fallback validation: ${hasExactMatch ? 'ACCEPTED' : 'REJECTED'}`);
-    return { isValid: hasExactMatch };
+    return { isValid: hasExactMatch, confidence: hasExactMatch ? 100 : 0 };
   }
 }
 
@@ -286,7 +290,6 @@ export async function retrieveCoinIDs(
     return [];
   }
 
-  // Search in filtered data
   const matches = findTokenMatches(potentialTokens, knowledgeBase, 'filtered');
   
   if (matches.length === 0) {
@@ -296,19 +299,29 @@ export async function retrieveCoinIDs(
     };
   }
 
-  // Use LLM to analyze match confidence
   console.log('🤖 Analyzing match confidence with LLM...');
   const llmResult = await calculateMatchPercentageWithLLM(potentialTokens, matches);
   
   if (!llmResult.isValid) {
-    console.log('📉 LLM determined low match confidence');
-    return {
-      error: "The tokens you mentioned have low match confidence. Please ask questions with complete names like in this list to process your request. If your token is not listed, sorry we are not serving that token right now.",
-      suggestions: llmResult.suggestions
-    };
+    const confidence = llmResult.confidence || 0;
+    console.log(`📉 LLM determined low match confidence (${confidence}%)`);
+    
+    if (confidence > 0 && confidence < 60 && llmResult.suggestions && llmResult.suggestions.length > 0) {
+      const matchedTokens = llmResult.suggestions.map(s => s.name).join(', ');
+      console.log(`🎯 Found partial matches: ${matchedTokens}`);
+      return {
+        error: `Match confidence is ${confidence}% (below 60% threshold). Found these tokens: ${matchedTokens}. Please clarify by using complete token names from this list to improve accuracy.`,
+        suggestions: llmResult.suggestions
+      };
+    } else {
+      return {
+        error: "Sorry, we only serve mid to popular coins for now. Please ask about well-known cryptocurrencies.",
+        suggestions: llmResult.suggestions
+      };
+    }
   }
 
-  console.log(`✅ LLM validated ${matches.length} matches with high confidence`);
+  console.log(`✅ LLM validated ${matches.length} matches with ${llmResult.confidence}% confidence`);
   return matches;
 }
 
@@ -345,20 +358,16 @@ export async function fetchDetailedCoinData(detectedAssets: Array<{ id: string; 
 export function extractPotentialTokens(query: string | undefined | null): string[] {
   if (typeof query !== 'string') return [];
   
-  // Use regex to extract words (alphanumeric, 2-20 characters)
   const words = query.match(/\b[a-zA-Z0-9]{2,20}\b/g) || [];
   
-  // Remove English stopwords using industry-standard library
   const withoutStopwords = removeStopwords(words, eng);
   
-  // Additional domain-specific filters for crypto analysis
   const cryptoStopwords = [
     'analysis', 'technical', 'price', 'token', 'coin', 'crypto', 'cryptocurrency', 
     'vs', 'comparison', 'compare', 'latest', 'news', 'market', 'trends', 'about', 
     'please', 'give', 'show', 'tell', 'explain', 'current', 'recent'
   ];
   
-  // Filter out crypto-specific stopwords (case-insensitive)
   const filtered = withoutStopwords.filter(word => 
     !cryptoStopwords.includes(word.toLowerCase())
   );

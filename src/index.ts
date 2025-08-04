@@ -26,7 +26,7 @@ class Timer {
   }
 }
 
-const userQuery = process.env.USER_QUERY?.replace(/^"|"$/g, '') || process.argv[2] || "Technical analysis on Shiba Inu and PEAR Protocol";
+const userQuery = process.env.USER_QUERY?.replace(/^"|"$/g, '') || process.argv[2] || "";
 
 interface ScrapedContent {
   url: string;
@@ -82,45 +82,41 @@ async function generateFinalAnalysis(analysisPrompt: string): Promise<string> {
       .create("crypto_analysis_agent")
       .withModel(google("gemini-2.0-flash-exp"))
       .withDescription("Professional cryptocurrency analysis expert following industry standards")
-      .withInstruction(`You are a professional cryptocurrency analyst providing institutional-grade analysis. Follow these industry standards:
+      .withInstruction(`You are an elite DeFi analyst at a $10B crypto fund. Generate actionable alpha with precision:
 
-## ANALYSIS STRUCTURE:
-1. **Executive Summary** (2-3 key points)
-2. **Technical Analysis** with specific metrics
-3. **Fundamental Analysis** (when data available)
-4. **Market Sentiment & On-chain Metrics**
-5. **Risk Assessment** with specific risk levels
-6. **Price Targets & Timeframes**
-7. **Trading Strategy** (short/medium/long term)
+## OUTPUT FORMAT:
+**EXECUTIVE SUMMARY** (30 words max)
+- Risk/Reward ratio | Conviction level | Key catalyst
 
-## TECHNICAL INDICATORS TO INCLUDE:
-- RSI (14-day) with specific values and interpretation
-- MACD signals and crossovers
-- Moving Averages (20, 50, 200 SMA/EMA)
-- Support/Resistance levels with specific price points
-- Volume analysis and trends
-- Bollinger Bands position
-- Fibonacci retracement levels (when applicable)
+**TECHNICALS** 
+- Current: Price/RSI/MACD/Volume trend
+- Levels: Next support/resistance with % distance
+- Signal: Primary setup (breakout/reversal/continuation)
 
-## RISK METRICS:
-- Volatility metrics (30-day, 90-day)
-- Maximum drawdown analysis
-- Correlation with BTC/market
-- Liquidity assessment
+**CATALYSTS & SENTIMENT**
+- Fundamental driver | On-chain flow | Market positioning
 
-## PRICE TARGETS:
-- Short-term (1-7 days): Specific price ranges
-- Medium-term (1-4 weeks): Target levels
-- Long-term (1-3 months): Trend direction
+**RISK MATRIX**
+- Volatility tier | Liquidity score | Correlation risk
+- Max loss scenario with probability
 
-## FORMATTING:
-- Use clear section headers with markdown
-- Include specific numerical targets
-- Provide confidence levels (High/Medium/Low)
-- Use bullet points for actionable insights
-- Include relevant charts/patterns mentioned
+**TARGETS** (Next 7/30/90 days)
+- Bull case: Price + probability + trigger
+- Base case: Price + probability  
+- Bear case: Price + probability + invalidation
 
-Provide comprehensive, actionable analysis with specific price targets and confidence levels.`)
+**EXECUTION**
+- Entry zone | Stop loss | Take profit levels
+- Position sizing | Risk management rules
+
+## REQUIREMENTS:
+- Every number must be specific and actionable
+- Include confidence scores (1-10)
+- Flag any data quality issues
+- Maximum 200 words per token analysis
+- Focus on asymmetric opportunities
+
+Generate institutional-grade alpha, not generic TA commentary.`)
       .build();
 
     const result = await analysisAgent.runner.ask(analysisPrompt);
@@ -132,6 +128,19 @@ Provide comprehensive, actionable analysis with specific price targets and confi
 }
 
 async function main() {
+  if (!userQuery.trim()) {
+    console.log('❌ No query provided!');
+    console.log('📝 Please provide a cryptocurrency analysis query.');
+    console.log('💡 Examples:');
+    console.log('   • "Technical analysis on Bitcoin and Ethereum"');
+    console.log('   • "Price prediction for Solana and Cardano"');
+    console.log('   • "Market analysis of DeFi tokens"');
+    console.log('\n🔧 Usage:');
+    console.log('   npm start "your query here"');
+    console.log('   or set USER_QUERY environment variable');
+    return;
+  }
+
   const enableExa = process.env.ENABLE_EXA === 'true';
   let searchEngine = process.env.SEARCH_ENGINE || process.argv[3] || 'tavily';
   
@@ -143,11 +152,9 @@ async function main() {
   console.log(`🔍 Search Engine: ${searchEngine.toUpperCase()}`);
   console.log(`🚀 Starting crypto analysis for: "${userQuery}"`);
   
-  // Initialize services
   const synonymGeneratorService = new SynonymGeneratorService();
   const marketDataService = new MarketDataService();
   
-  // Validate query
   const validation = await synonymGeneratorService.validateCryptoQuery(userQuery);
   if (!validation.isValid) {
     console.log(validation.sanitizedQuery);
@@ -161,16 +168,16 @@ async function main() {
   
   const detectionResult = await marketDataService.retrieveCoinIDs(validation.sanitizedQuery);
   
-  // Check if we got an error response
   if ('error' in detectionResult) {
     console.log('❌ Token detection failed:', detectionResult.error);
     
     if (detectionResult.suggestions && detectionResult.suggestions.length > 0) {
-      console.log('\n💡 Suggested tokens:');
+      console.log('\n💡 Suggested tokens based on your query:');
       detectionResult.suggestions.forEach((suggestion, index) => {
-        console.log(`${index + 1}. ${suggestion.name} (${suggestion.symbol.toUpperCase()})`);
+        console.log(`   ${index + 1}. ${suggestion.name} (${suggestion.symbol.toUpperCase()}) - ID: ${suggestion.id}`);
       });
-      console.log('\nPlease ask questions with complete names like in this list to process your request. If your token is not listed, sorry we are not serving that token right now.');
+      console.log('\n🎯 To improve accuracy, please rephrase your query using complete token names from the list above.');
+      console.log('📝 Example: "Technical analysis of Bitcoin and Ethereum" instead of "BTC ETH analysis"');
     } else {
       console.log('Sorry, we only serve mid to popular coins for now. Please ask about well-known cryptocurrencies.');
     }
@@ -182,7 +189,6 @@ async function main() {
   const detectedAssets = detectionResult as Array<{ name: string; id: string; symbol: string }>;
   console.log(`🪙 Detected ${detectedAssets.length} relevant coins`);
   
-  // Generate synonyms using the service
   const synonymResponse = await synonymGeneratorService.generateSynonyms(validation.sanitizedQuery);
   console.log(`📝 Generated ${synonymResponse.synonyms.length} search queries`);
   
