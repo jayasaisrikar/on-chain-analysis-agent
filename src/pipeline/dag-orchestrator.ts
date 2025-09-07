@@ -7,6 +7,7 @@ import { MarketData } from '../types/index';
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { env } from "../env";
+import { ParallelAgent, makeAgent } from './agents';
 
 export interface PipelineContext {
   rawQuery: string;
@@ -33,100 +34,87 @@ type Node = {
 
 /* ---------- DAG Nodes ---------- */
 
-const nodes: Node[] = [
-  {
-    name: "validate",
-    deps: [],
-    run: async (ctx) => {
-      const syn = new SynonymGeneratorService();
-      const { isValid, sanitizedQuery } = await syn.validateCryptoQuery(ctx.rawQuery);
-      if (!isValid) return { isValid, sanitizedQuery, errors: [...ctx.errors, 'Invalid crypto query'] };
-      return { isValid, sanitizedQuery };
-    }
-  },
-  {
-    name: "knowledgeBase",
-    deps: [],
-    run: async () => {
-      const kb = await getCachedKnowledgeBase();
-      return { knowledgeBase: kb };
-    }
-  },
-  {
-    name: "tokenMatcher",
-    deps: ["validate", "knowledgeBase"],
-    run: async (ctx) => {
-      if (!ctx.sanitizedQuery || !ctx.knowledgeBase) return {};
-      const tokens = extractPotentialTokens(ctx.sanitizedQuery);
-      const matches = await retrieveCoinIDs(tokens, ctx.knowledgeBase);
-      return { potentialTokens: tokens, matchedAssets: matches };
-    }
-  },
-  {
-    name: "synonyms",
-    deps: ["tokenMatcher"],
-    run: async (ctx) => {
-      if (!ctx.sanitizedQuery) return {};
-      const syn = new SynonymGeneratorService();
-      const res = await syn.generateSynonyms(ctx.sanitizedQuery);
-      return { synonymQueries: res.synonyms };
-    }
-  },
-  {
-    name: "marketAugmentor",
-    deps: ["tokenMatcher"],
-    run: async (ctx) => {
-      if (!Array.isArray(ctx.matchedAssets) || ctx.matchedAssets.length === 0) return { augmentedMarket: [] };
-      const detailed = await fetchDetailedCoinData(ctx.matchedAssets);
-      return { augmentedMarket: detailed };
-    }
-  },
-  {
-    name: "searchAndScrape",
-    deps: ["synonyms", "marketAugmentor"],
-    run: async (ctx) => {
-      const queries = (ctx.synonymQueries && ctx.synonymQueries.length > 0) 
-        ? ctx.synonymQueries.slice(0, 6) 
-        : [ctx.sanitizedQuery || ctx.rawQuery];
+const validateAgent = makeAgent('validate', async (ctx) => {
+  const syn = new SynonymGeneratorService();
+  const { isValid, sanitizedQuery } = await syn.validateCryptoQuery(ctx.rawQuery);
+  if (!isValid) return { isValid, sanitizedQuery, errors: [...ctx.errors, 'Invalid crypto query'] };
+  return { isValid, sanitizedQuery };
+});
 
-      const searchService = new SearchService();
-      const search = await searchService.searchDualEngine(queries);
-      const scraper = new WebScraper();
-      const scraped = await scraper.scrapeMultiple(search.urls.slice(0, 8));
-      await scraper.cleanup();
-      return { searchQueries: queries, searchResults: search.results, scraped };
-    }
-  },
-  {
-    name: "report",
-    deps: ["searchAndScrape"],
-    run: async (ctx) => {
-      const query = ctx.sanitizedQuery || ctx.rawQuery;
-      const marketData = ctx.augmentedMarket || [];
-      const news = (ctx.scraped || []).map(s => ({
-        url: s.url,
-        title: s.title,
-        content: s.cleanedContent || s.content || '',
-        publishedDate: s.publishedDate
-      })).slice(0, 8);
+const knowledgeBaseAgent = makeAgent('knowledgeBase', async () => {
+  const kb = await getCachedKnowledgeBase();
+  return { knowledgeBase: kb };
+});
 
-      const prompt = `You are a professional cryptocurrency analyst.
-QUERY: ${query}
-CURRENT DATE: ${new Date().toISOString().split('T')[0]}
-MARKET DATA:\n${marketData.map(c => `- ${c.name} (${c.symbol.toUpperCase()}): $${c.current_price} 24h ${c.price_change_percentage_24h?.toFixed(2)}% MCAP $${c.market_cap?.toLocaleString()}`).join('\n')}
-NEWS:\n${news.map((n,i)=>`${i+1}. ${n.title} | ${n.url} | ${(n.content||'').substring(0,300)}`).join('\n')}
-TASK: Produce a concise, markdown-formatted report with sections: Executive Summary, Market Analysis, Recent Developments, Risks, Outlook & Recommendations, Disclaimer. Do NOT invent dates; if missing write 'Unknown'.`;
+const parallelInitial = new ParallelAgent({
+  name: 'initial_parallel',
+  subAgents: [validateAgent, knowledgeBaseAgent]
+});
 
-      try {
-        const model = google(env.LLM_MODEL || 'gemini-2.0-flash-exp');
-        const result = await generateText({ model, prompt, maxTokens: 2500, temperature: 0.6 });
-        return { finalReport: result.text };
-      } catch (e: any) {
-        const fallback = `# Crypto Report\n\n## Query\n${query}\n\n## Market Snapshot\n${marketData.map(c=>`- ${c.name}: $${c.current_price} (${c.price_change_percentage_24h?.toFixed(2)}% 24h)`).join('\n')}\n\n## News\n${news.map(n=>`- ${n.title} (${n.publishedDate||'Unknown'})`).join('\n')}\n\n## Disclaimer\nInformational only; not financial advice.`;
-        return { finalReport: fallback, errors: [...ctx.errors, 'LLM report generation failed'] };
-      }
-    }
+const tokenMatcherAgent = makeAgent('tokenMatcher', async (ctx) => {
+  if (!ctx.sanitizedQuery || !ctx.knowledgeBase) return {};
+  const tokens = extractPotentialTokens(ctx.sanitizedQuery);
+  const matches = await retrieveCoinIDs(tokens, ctx.knowledgeBase);
+  return { potentialTokens: tokens, matchedAssets: matches };
+});
+
+const synonymsAgent = makeAgent('synonyms', async (ctx) => {
+  if (!ctx.sanitizedQuery) return {};
+  const syn = new SynonymGeneratorService();
+  const res = await syn.generateSynonyms(ctx.sanitizedQuery);
+  return { synonymQueries: res.synonyms };
+});
+
+const marketAugmentorAgent = makeAgent('marketAugmentor', async (ctx) => {
+  if (!Array.isArray(ctx.matchedAssets) || ctx.matchedAssets.length === 0) return { augmentedMarket: [] };
+  const detailed = await fetchDetailedCoinData(ctx.matchedAssets);
+  return { augmentedMarket: detailed };
+});
+
+const parallelPostMatcher = new ParallelAgent({
+  name: 'post_matcher_parallel',
+  subAgents: [synonymsAgent, marketAugmentorAgent]
+});
+
+const searchAndScrapeAgent = makeAgent('searchAndScrape', async (ctx) => {
+  const queries = (ctx.synonymQueries && ctx.synonymQueries.length > 0)
+    ? ctx.synonymQueries.slice(0, 6)
+    : [ctx.sanitizedQuery || ctx.rawQuery];
+  const searchService = new SearchService();
+  const search = await searchService.searchDualEngine(queries);
+  const scraper = new WebScraper();
+  const scraped = await scraper.scrapeMultiple(search.urls.slice(0, 8));
+  await scraper.cleanup();
+  return { searchQueries: queries, searchResults: search.results, scraped };
+});
+
+const reportAgent = makeAgent('report', async (ctx) => {
+  const query = ctx.sanitizedQuery || ctx.rawQuery;
+  const marketData = ctx.augmentedMarket || [];
+  const news = (ctx.scraped || []).map(s => ({
+    url: s.url,
+    title: s.title,
+    content: s.cleanedContent || s.content || '',
+    publishedDate: s.publishedDate
+  })).slice(0, 8);
+
+  const prompt = `You are a professional cryptocurrency analyst.\nQUERY: ${query}\nCURRENT DATE: ${new Date().toISOString().split('T')[0]}\nMARKET DATA:\n${marketData.map(c => `- ${c.name} (${c.symbol.toUpperCase()}): $${c.current_price} 24h ${c.price_change_percentage_24h?.toFixed(2)}% MCAP $${c.market_cap?.toLocaleString()}`).join('\n')}\nNEWS:\n${news.map((n,i)=>`${i+1}. ${n.title} | ${n.url} | ${(n.content||'').substring(0,300)}`).join('\n')}\nTASK: Produce a concise, markdown-formatted report with sections: Executive Summary, Market Analysis, Recent Developments, Risks, Outlook & Recommendations, Disclaimer. Do NOT invent dates; if missing write 'Unknown'.`;
+  try {
+    const model = google(env.LLM_MODEL || 'gemini-2.0-flash-exp');
+    const result = await generateText({ model, prompt, maxTokens: 2500, temperature: 0.6 });
+    return { finalReport: result.text };
+  } catch (e: any) {
+    const fallback = `# Crypto Report\n\n## Query\n${query}\n\n## Market Snapshot\n${marketData.map(c=>`- ${c.name}: $${c.current_price} (${c.price_change_percentage_24h?.toFixed(2)}% 24h)`).join('\n')}\n\n## News\n${news.map(n=>`- ${n.title} (${n.publishedDate||'Unknown'})`).join('\n')}\n\n## Disclaimer\nInformational only; not financial advice.`;
+    return { finalReport: fallback, errors: [...ctx.errors, 'LLM report generation failed'] };
   }
+});
+
+const nodes: Node[] = [
+  { name: 'initial_parallel', deps: [], run: (ctx) => parallelInitial.run(ctx) },
+  { name: 'tokenMatcher', deps: ['initial_parallel'], run: (ctx) => tokenMatcherAgent.run(ctx) },
+  { name: 'post_matcher_parallel', deps: ['tokenMatcher'], run: (ctx) => parallelPostMatcher.run(ctx) },
+  { name: 'searchAndScrape', deps: ['post_matcher_parallel'], run: (ctx) => searchAndScrapeAgent.run(ctx) },
+  { name: 'report', deps: ['searchAndScrape'], run: (ctx) => reportAgent.run(ctx) }
 ];
 
 /* ---------- DAG Executor ---------- */
