@@ -2,6 +2,10 @@
 
 A sophisticated cryptocurrency analysis pipeline built with **TypeScript** and the **IQAI ADK (Agent Development Kit)**. This production-ready application provides AI-powered comprehensive analysis of cryptocurrency markets using multiple data sources, advanced web scraping, and intelligent LLM-based token matching.
 
+## 🧩 DAG-Based Pipeline Orchestration
+
+This project uses a Directed Acyclic Graph (DAG) to orchestrate the analysis pipeline. Each step (node) in the pipeline depends on the completion of its prerequisites, ensuring robust, modular, and error-resilient execution. The DAG structure enables parallel execution of independent steps and clear dependency management.
+
 ## ✨ Core Features
 
 ### 🧠 **AI-Powered Token Matching**
@@ -468,20 +472,21 @@ data/memory/persistence.json
 ### 🗃️ **Data Flow Architecture**
 
 ```mermaid
-graph TD
-    A[User Query] --> B{Query Validation}
-    B -->|Invalid| C[Error Response]
-    B -->|Valid| D[Token Detection]
-    D --> E{Cache Check}
-    E -->|Hit| F[Use Cached Data]
-    E -->|Miss| G[Fetch from APIs]
-    G --> H[Update Cache]
-    F --> I[Search Engines]
-    H --> I
-    I --> J[Web Scraping]
-    J --> K[Content Analysis]
-    K --> L[Final Analysis]
-    L --> M[Response to User]
+flowchart TD
+    Q[User Query] --> V[Query Validator]
+    Q --> K[Knowledge Base Loader]
+
+    V --> T[Token Matcher]
+    K --> T
+
+    T --> S[Synonym Generator]
+    T --> M[Market Augmentor]
+
+    S --> W[Web Search & Scraping]
+    M --> W
+
+    W --> R[Crypto Analyst]
+    R --> F[Final Report]
 ```
 
 ## 🔧 API Rate Limits & Error Handling
@@ -911,9 +916,6 @@ USER_QUERY="Lightning Network adoption impact on Bitcoin scalability" npm start
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🆘 Support
 
