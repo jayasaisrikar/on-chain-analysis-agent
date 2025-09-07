@@ -1,8 +1,9 @@
 // dag-pipeline.ts
-import { SynonymGeneratorService } from '../services/synonym-generator';
-import { fetchDetailedCoinData, retrieveCoinIDs, getCachedKnowledgeBase, extractPotentialTokens } from '../services/market-data';
-import { SearchService } from '../services/search';
-import { WebScraper } from '../services/scraper';
+// Use sub-agent agent wrappers (tool-enabled) instead of direct service adapters
+import { synonymAgent } from '../agents/crypto-analysis-agent/sub-agents/synonym-agent/agent';
+import { marketDataAgent } from '../agents/crypto-analysis-agent/sub-agents/market-data-agent/agent';
+import { researchAgent } from '../agents/crypto-analysis-agent/sub-agents/research-agent/agent';
+import { retrieveCoinIDs, getCachedKnowledgeBase, extractPotentialTokens } from '../services/market-data';
 import { MarketData } from '../types/index';
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
@@ -34,11 +35,43 @@ type Node = {
 
 /* ---------- DAG Nodes ---------- */
 
+// Lazy singletons for agent instances
+let synonymAgentInstance: any = null;
+let marketDataAgentInstance: any = null;
+let researchAgentInstance: any = null; // (not actively used in current optimized path)
+
+// Helper: extract first JSON object or array from a string
+function extractJson<T = any>(text: string): T | null {
+  try {
+    // Try full parse first
+    return JSON.parse(text);
+  } catch {}
+  const objMatch = text.match(/\{[\s\S]*\}/);
+  if (objMatch) {
+    try { return JSON.parse(objMatch[0]); } catch {}
+  }
+  const arrMatch = text.match(/\[[\s\S]*\]/);
+  if (arrMatch) {
+    try { return JSON.parse(arrMatch[0]); } catch {}
+  }
+  return null;
+}
+
 const validateAgent = makeAgent('validate', async (ctx) => {
-  const syn = new SynonymGeneratorService();
-  const { isValid, sanitizedQuery } = await syn.validateCryptoQuery(ctx.rawQuery);
-  if (!isValid) return { isValid, sanitizedQuery, errors: [...ctx.errors, 'Invalid crypto query'] };
-  return { isValid, sanitizedQuery };
+  if (!synonymAgentInstance) {
+    try { synonymAgentInstance = await synonymAgent(); } catch (e) { return { errors: [...ctx.errors, `synonymAgent init failed: ${(e as any).message || e}`] }; }
+  }
+  try {
+    const prompt = `Use synonym_service tool with action=validateQuery for the user query. Return ONLY JSON {"isValid":boolean,"sanitizedQuery":string}. Query: ${ctx.rawQuery}`;
+    const raw = await synonymAgentInstance.runner.ask(prompt);
+    const parsed = typeof raw === 'string' ? extractJson(raw) : raw;
+    const isValid = !!parsed?.isValid;
+    const sanitizedQuery = parsed?.sanitizedQuery || ctx.rawQuery;
+    if (!isValid) return { isValid, sanitizedQuery, errors: [...ctx.errors, 'Invalid crypto query'] };
+    return { isValid, sanitizedQuery };
+  } catch (e) {
+    return { errors: [...ctx.errors, `validate failed: ${(e as any).message || e}`] };
+  }
 });
 
 const knowledgeBaseAgent = makeAgent('knowledgeBase', async () => {
@@ -60,15 +93,33 @@ const tokenMatcherAgent = makeAgent('tokenMatcher', async (ctx) => {
 
 const synonymsAgent = makeAgent('synonyms', async (ctx) => {
   if (!ctx.sanitizedQuery) return {};
-  const syn = new SynonymGeneratorService();
-  const res = await syn.generateSynonyms(ctx.sanitizedQuery);
-  return { synonymQueries: res.synonyms };
+  if (!synonymAgentInstance) return {};
+  try {
+    const prompt = `Use synonym_service tool with action=generateSynonyms for query: ${ctx.sanitizedQuery}. Return ONLY JSON {"synonyms":["..."]}.`;
+    const raw = await synonymAgentInstance.runner.ask(prompt);
+    const parsed = typeof raw === 'string' ? extractJson(raw) : raw;
+    const synonyms = Array.isArray(parsed?.synonyms) ? parsed.synonyms.slice(0, 12) : [];
+    return { synonymQueries: synonyms };
+  } catch (e) {
+    return { errors: [...ctx.errors, `synonyms failed: ${(e as any).message || e}`] };
+  }
 });
 
 const marketAugmentorAgent = makeAgent('marketAugmentor', async (ctx) => {
   if (!Array.isArray(ctx.matchedAssets) || ctx.matchedAssets.length === 0) return { augmentedMarket: [] };
-  const detailed = await fetchDetailedCoinData(ctx.matchedAssets);
-  return { augmentedMarket: detailed };
+  if (!marketDataAgentInstance) {
+    try { marketDataAgentInstance = await marketDataAgent(); } catch (e) { return { errors: [...ctx.errors, `marketDataAgent init failed: ${(e as any).message || e}`], augmentedMarket: [] }; }
+  }
+  const coinIds = ctx.matchedAssets.map(a => a.id);
+  try {
+    const prompt = `Use market_data_service tool with action=getMarketData and coinIds=${JSON.stringify(coinIds)}. Return ONLY JSON array.`;
+    const raw = await marketDataAgentInstance.runner.ask(prompt);
+    const parsed = typeof raw === 'string' ? extractJson(raw) : raw;
+    const arr = Array.isArray(parsed) ? parsed : [];
+    return { augmentedMarket: arr as any };
+  } catch (e) {
+    return { augmentedMarket: [], errors: [...ctx.errors, `marketAugmentor failed: ${(e as any).message || e}`] };
+  }
 });
 
 const parallelPostMatcher = new ParallelAgent({
@@ -76,16 +127,37 @@ const parallelPostMatcher = new ParallelAgent({
   subAgents: [synonymsAgent, marketAugmentorAgent]
 });
 
+// researchAgentInstance declared earlier
+
 const searchAndScrapeAgent = makeAgent('searchAndScrape', async (ctx) => {
-  const queries = (ctx.synonymQueries && ctx.synonymQueries.length > 0)
-    ? ctx.synonymQueries.slice(0, 6)
-    : [ctx.sanitizedQuery || ctx.rawQuery];
-  const searchService = new SearchService();
-  const search = await searchService.searchDualEngine(queries);
-  const scraper = new WebScraper();
-  const scraped = await scraper.scrapeMultiple(search.urls.slice(0, 8));
-  await scraper.cleanup();
-  return { searchQueries: queries, searchResults: search.results, scraped };
+  const base = ctx.sanitizedQuery || ctx.rawQuery;
+  const syns = (ctx.synonymQueries || []).filter(s => s && s !== base);
+  const maxQueries = Number((env as any).RESEARCH_MAX_QUERIES || 1); // default 1 to cut duplicate logs
+  const queries = [base, ...syns].slice(0, maxQueries);
+
+  if (!researchAgentInstance) {
+    try { researchAgentInstance = await researchAgent(); } catch (e) {
+      return { searchQueries: queries, scraped: [], errors: [...ctx.errors, `researchAgent init failed: ${(e as any).message || e}`] };
+    }
+  }
+
+  // We'll run searchAndScrape for only the first query to reduce log noise; others can be future extension.
+  const primaryQuery = queries[0];
+  try {
+    const prompt = `Use research_service tool with action=searchAndScrape, query="${primaryQuery}", maxResults=6. Return ONLY JSON array of objects with fields url,title,content,publishedDate.`;
+    const raw = await researchAgentInstance.runner.ask(prompt);
+    let parsed = raw as any;
+    if (typeof raw === 'string') {
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        try { parsed = JSON.parse(jsonMatch[0]); } catch {}
+      }
+    }
+    const scraped = Array.isArray(parsed) ? parsed : [];
+    return { searchQueries: queries, searchResults: scraped, scraped };
+  } catch (e) {
+    return { searchQueries: queries, searchResults: [], scraped: [], errors: [...ctx.errors, `searchAndScrape failed: ${(e as any).message || e}`] };
+  }
 });
 
 const reportAgent = makeAgent('report', async (ctx) => {
