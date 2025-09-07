@@ -98,11 +98,59 @@ const reportAgent = makeAgent('report', async (ctx) => {
     publishedDate: s.publishedDate
   })).slice(0, 8);
 
-  const prompt = `You are a professional cryptocurrency analyst.\nQUERY: ${query}\nCURRENT DATE: ${new Date().toISOString().split('T')[0]}\nMARKET DATA:\n${marketData.map(c => `- ${c.name} (${c.symbol.toUpperCase()}): $${c.current_price} 24h ${c.price_change_percentage_24h?.toFixed(2)}% MCAP $${c.market_cap?.toLocaleString()}`).join('\n')}\nNEWS:\n${news.map((n,i)=>`${i+1}. ${n.title} | ${n.url} | ${(n.content||'').substring(0,300)}`).join('\n')}\nTASK: Produce a concise, markdown-formatted report with sections: Executive Summary, Market Analysis, Recent Developments, Risks, Outlook & Recommendations, Disclaimer. Do NOT invent dates; if missing write 'Unknown'.`;
+  // Trim market/news if too large to reduce token pressure
+  const trimmedMarketLines = marketData.slice(0, 15); // safeguard
+  const trimmedNews = news.map(n => ({ ...n, content: (n.content || '').slice(0, 600) }));
+
+  const basePrompt = `You are a professional cryptocurrency analyst.\nQUERY: ${query}\nCURRENT DATE: ${new Date().toISOString().split('T')[0]}\nMARKET DATA:\n${trimmedMarketLines.map(c => `- ${c.name} (${c.symbol.toUpperCase()}): $${c.current_price} 24h ${c.price_change_percentage_24h?.toFixed(2)}% MCAP $${c.market_cap?.toLocaleString()}`).join('\n')}\nNEWS:\n${trimmedNews.map((n,i)=>`${i+1}. ${n.title} | ${n.url} | ${(n.content||'').substring(0,400)}`).join('\n')}\nTASK: Produce a concise, markdown-formatted report with sections: Executive Summary, Market Analysis, Recent Developments, Risks, Outlook & Recommendations, Disclaimer. Do NOT invent dates; if missing write 'Unknown'. Ensure all required sections are present.`;
+
+  const requiredSections = [
+    'Executive Summary',
+    'Market Analysis',
+    'Recent Developments',
+    'Risks',
+    'Outlook', // substring match acceptable
+    'Disclaimer'
+  ];
+
+  function isIncomplete(text: string, finishReason?: string): boolean {
+    if (!text) return true;
+    // If finish reason indicates length (model dependent) or missing any required heading
+    const lower = text.toLowerCase();
+    const missing = requiredSections.some(h => !lower.includes(h.toLowerCase()));
+    const suspiciousTail = /\(Source:[^\n]*$/.test(text); // cut mid parenthetical
+  const reasonFlag = finishReason ? /length|max/.test(finishReason) : false;
+  return missing || suspiciousTail || reasonFlag;
+  }
+
   try {
-    const model = google(env.LLM_MODEL || 'gemini-2.0-flash-exp');
-    const result = await generateText({ model, prompt, maxTokens: 2500, temperature: 0.6 });
-    return { finalReport: result.text };
+  const model = google(env.LLM_MODEL || 'gemini-2.0-flash-exp');
+  const maxTokens = 2500; // fixed cap; adjust if env adds configurable value later
+    const first = await generateText({ model, prompt: basePrompt, maxTokens, temperature: 0.6 });
+    let report = first.text;
+    // We attempt at most one continuation to avoid runaway usage.
+    // @ts-ignore (finishReason may exist depending on sdk version)
+    const finishReason: string | undefined = (first as any).finishReason;
+    if (isIncomplete(report, finishReason)) {
+      const continuationPrompt = `The previous report may have been truncated or is missing required sections. Current partial content below:\n---\n${report}\n---\nContinue ONLY from where it left off. Do NOT repeat already complete sections. If any required section is missing or incomplete, provide it. End with a complete 'Disclaimer' section.`;
+      const second = await generateText({ model, prompt: continuationPrompt, maxTokens: Math.min(maxTokens / 2, 1200), temperature: 0.55 });
+      // Simple merge: if second starts with a heading already present at end, just append.
+      const cleanedSecond = second.text.trim();
+      if (cleanedSecond && !report.includes(cleanedSecond)) {
+        // Avoid duplicating disclaimer
+        if (/##\s*Disclaimer/i.test(report) && /##\s*Disclaimer/i.test(cleanedSecond)) {
+          // If disclaimer exists in both, keep the longer version
+          const existing = report.match(/##\s*Disclaimer[\s\S]*$/i)?.[0] || '';
+            const newDisc = cleanedSecond.match(/##\s*Disclaimer[\s\S]*$/i)?.[0] || '';
+            if (newDisc.length > existing.length) {
+              report = report.replace(existing, newDisc);
+            }
+        } else {
+          report += (report.endsWith('\n') ? '' : '\n') + cleanedSecond + '\n';
+        }
+      }
+    }
+    return { finalReport: report };
   } catch (e: any) {
     const fallback = `# Crypto Report\n\n## Query\n${query}\n\n## Market Snapshot\n${marketData.map(c=>`- ${c.name}: $${c.current_price} (${c.price_change_percentage_24h?.toFixed(2)}% 24h)`).join('\n')}\n\n## News\n${news.map(n=>`- ${n.title} (${n.publishedDate||'Unknown'})`).join('\n')}\n\n## Disclaimer\nInformational only; not financial advice.`;
     return { finalReport: fallback, errors: [...ctx.errors, 'LLM report generation failed'] };
