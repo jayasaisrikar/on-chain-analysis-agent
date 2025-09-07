@@ -1,27 +1,27 @@
 // dag-pipeline.ts
-// Use sub-agent agent wrappers (tool-enabled) instead of direct service adapters
 import { synonymAgent } from '../agents/crypto-analysis-agent/sub-agents/synonym-agent/agent';
 import { marketDataAgent } from '../agents/crypto-analysis-agent/sub-agents/market-data-agent/agent';
 import { researchAgent } from '../agents/crypto-analysis-agent/sub-agents/research-agent/agent';
 import { retrieveCoinIDs, getCachedKnowledgeBase, extractPotentialTokens } from '../services/market-data';
-import { MarketData } from '../types/index';
+import { MarketData, SearchResult, ScrapedContent } from '../types/index';
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { env } from "../env";
-import { ParallelAgent, makeAgent } from './agents';
+import { ParallelAgent, makeAgent, AgentWrapper } from './agents';
 
+/* ---------- Context ---------- */
 export interface PipelineContext {
   rawQuery: string;
   sanitizedQuery?: string;
   isValid?: boolean;
   knowledgeBase?: Array<{ id: string; symbol: string; name: string }>;
   potentialTokens?: string[];
-  matchedAssets?: Array<{ name: string; id: string; symbol: string }> | { error: string; suggestions?: any[] };
+  matchedAssets?: Array<{ id: string; name: string; symbol: string }>;
   synonymQueries?: string[];
   augmentedMarket?: MarketData[];
   searchQueries?: string[];
-  searchResults?: any[];
-  scraped?: any[];
+  searchResults?: SearchResult[];
+  scraped?: ScrapedContent[];
   finalReport?: string;
   newsSummaries?: string[];
   errors: string[];
@@ -33,12 +33,12 @@ type Node = {
   run: (ctx: PipelineContext) => Promise<Partial<PipelineContext>>;
 };
 
-/* ---------- DAG Nodes ---------- */
-// lazy singletons for agent instances
-let synonymAgentInstance: any = null;
-let marketDataAgentInstance: any = null;
-let researchAgentInstance: any = null;
+/* ---------- Lazy Singletons ---------- */
+let synonymAgentInstance: AgentWrapper | null = null;
+let marketDataAgentInstance: AgentWrapper | null = null;
+let researchAgentInstance: AgentWrapper | null = null;
 
+/* ---------- Helpers ---------- */
 function extractJson<T = any>(text: string): T | null {
   try {
     return JSON.parse(text);
@@ -54,17 +54,24 @@ function extractJson<T = any>(text: string): T | null {
   return null;
 }
 
+/* ---------- Agents ---------- */
 const validateAgent = makeAgent('validate', async (ctx) => {
   if (!synonymAgentInstance) {
-    try { synonymAgentInstance = await synonymAgent(); } catch (e) { return { errors: [...ctx.errors, `synonymAgent init failed: ${(e as any).message || e}`] }; }
+    try {
+      synonymAgentInstance = await synonymAgent();
+    } catch (e) {
+      return { errors: [...ctx.errors, `synonymAgent init failed: ${(e as any).message || e}`] };
+    }
   }
   try {
     const prompt = `Use synonym_service tool with action=validateQuery for the user query. Return ONLY JSON {"isValid":boolean,"sanitizedQuery":string}. Query: ${ctx.rawQuery}`;
-    const raw = await synonymAgentInstance.runner.ask(prompt);
+    const raw = await synonymAgentInstance!.runner.ask(prompt);
     const parsed = typeof raw === 'string' ? extractJson(raw) : raw;
     const isValid = !!parsed?.isValid;
     const sanitizedQuery = parsed?.sanitizedQuery || ctx.rawQuery;
-    if (!isValid) return { isValid, sanitizedQuery, errors: [...ctx.errors, 'Invalid crypto query'] };
+    if (!isValid) {
+      return { isValid, sanitizedQuery, errors: [...ctx.errors, 'Invalid crypto query'] };
+    }
     return { isValid, sanitizedQuery };
   } catch (e) {
     return { errors: [...ctx.errors, `validate failed: ${(e as any).message || e}`] };
@@ -84,13 +91,31 @@ const parallelInitial = new ParallelAgent({
 const tokenMatcherAgent = makeAgent('tokenMatcher', async (ctx) => {
   if (!ctx.sanitizedQuery || !ctx.knowledgeBase) return {};
   const tokens = extractPotentialTokens(ctx.sanitizedQuery);
-  const matches = await retrieveCoinIDs(tokens, ctx.knowledgeBase);
-  return { potentialTokens: tokens, matchedAssets: matches };
+  try {
+    const matches = await retrieveCoinIDs(tokens, ctx.knowledgeBase);
+    const matchedAssets = Array.isArray(matches)
+      ? matches
+      : (Array.isArray((matches as any)?.suggestions) ? (matches as any).suggestions : []);
+
+    const base: Partial<PipelineContext> = {
+      potentialTokens: tokens,
+      matchedAssets
+    };
+
+    if (!Array.isArray(matches)) {
+      const errMsg = typeof (matches as any)?.error === 'string'
+        ? (matches as any).error
+        : 'tokenMatcher returned unexpected result';
+      base.errors = [...(ctx.errors || []), errMsg];
+    }
+    return base;
+  } catch (e) {
+    return { potentialTokens: tokens, matchedAssets: [], errors: [...ctx.errors, `tokenMatcher failed: ${(e as any).message || e}`] };
+  }
 });
 
 const synonymsAgent = makeAgent('synonyms', async (ctx) => {
-  if (!ctx.sanitizedQuery) return {};
-  if (!synonymAgentInstance) return {};
+  if (!ctx.sanitizedQuery || !synonymAgentInstance) return {};
   try {
     const prompt = `Use synonym_service tool with action=generateSynonyms for query: ${ctx.sanitizedQuery}. Return ONLY JSON {"synonyms":["..."]}.`;
     const raw = await synonymAgentInstance.runner.ask(prompt);
@@ -103,9 +128,15 @@ const synonymsAgent = makeAgent('synonyms', async (ctx) => {
 });
 
 const marketAugmentorAgent = makeAgent('marketAugmentor', async (ctx) => {
-  if (!Array.isArray(ctx.matchedAssets) || ctx.matchedAssets.length === 0) return { augmentedMarket: [] };
+  if (!Array.isArray(ctx.matchedAssets) || ctx.matchedAssets.length === 0) {
+    return { augmentedMarket: [] };
+  }
   if (!marketDataAgentInstance) {
-    try { marketDataAgentInstance = await marketDataAgent(); } catch (e) { return { errors: [...ctx.errors, `marketDataAgent init failed: ${(e as any).message || e}`], augmentedMarket: [] }; }
+    try {
+      marketDataAgentInstance = await marketDataAgent();
+    } catch (e) {
+      return { errors: [...ctx.errors, `marketDataAgent init failed: ${(e as any).message || e}`], augmentedMarket: [] };
+    }
   }
   const coinIds = ctx.matchedAssets.map(a => a.id);
   try {
@@ -113,7 +144,7 @@ const marketAugmentorAgent = makeAgent('marketAugmentor', async (ctx) => {
     const raw = await marketDataAgentInstance.runner.ask(prompt);
     const parsed = typeof raw === 'string' ? extractJson(raw) : raw;
     const arr = Array.isArray(parsed) ? parsed : [];
-    return { augmentedMarket: arr as any };
+    return { augmentedMarket: arr as MarketData[] };
   } catch (e) {
     return { augmentedMarket: [], errors: [...ctx.errors, `marketAugmentor failed: ${(e as any).message || e}`] };
   }
@@ -127,16 +158,17 @@ const parallelPostMatcher = new ParallelAgent({
 const searchAndScrapeAgent = makeAgent('searchAndScrape', async (ctx) => {
   const base = ctx.sanitizedQuery || ctx.rawQuery;
   const syns = (ctx.synonymQueries || []).filter(s => s && s !== base);
-  const maxQueries = Number((env as any).RESEARCH_MAX_QUERIES || 1); // default 1 to cut duplicate logs
+  const maxQueries = Number((env as any).RESEARCH_MAX_QUERIES || 1);
   const queries = [base, ...syns].slice(0, maxQueries);
 
   if (!researchAgentInstance) {
-    try { researchAgentInstance = await researchAgent(); } catch (e) {
-      return { searchQueries: queries, scraped: [], errors: [...ctx.errors, `researchAgent init failed: ${(e as any).message || e}`] };
+    try {
+      researchAgentInstance = await researchAgent();
+    } catch (e) {
+      return { searchQueries: queries, searchResults: [], scraped: [], errors: [...ctx.errors, `researchAgent init failed: ${(e as any).message || e}`] };
     }
   }
 
-  // We'll run searchAndScrape for only the first query to reduce log noise; others can be future extension.
   const primaryQuery = queries[0];
   try {
     const prompt = `Use research_service tool with action=searchAndScrape, query="${primaryQuery}", maxResults=6. Return ONLY JSON array of objects with fields url,title,content,publishedDate.`;
@@ -148,8 +180,8 @@ const searchAndScrapeAgent = makeAgent('searchAndScrape', async (ctx) => {
         try { parsed = JSON.parse(jsonMatch[0]); } catch {}
       }
     }
-    const scraped = Array.isArray(parsed) ? parsed : [];
-    return { searchQueries: queries, searchResults: scraped, scraped };
+    const results = Array.isArray(parsed) ? parsed : [];
+    return { searchQueries: queries, searchResults: results as SearchResult[], scraped: results as ScrapedContent[] };
   } catch (e) {
     return { searchQueries: queries, searchResults: [], scraped: [], errors: [...ctx.errors, `searchAndScrape failed: ${(e as any).message || e}`] };
   }
@@ -161,21 +193,28 @@ const reportAgent = makeAgent('report', async (ctx) => {
   const news = (ctx.scraped || []).map(s => ({
     url: s.url,
     title: s.title,
-    content: s.cleanedContent || s.content || '',
+    content: (s as any).cleanedContent || s.content || '',
     publishedDate: s.publishedDate
   })).slice(0, 8);
 
-  const trimmedMarketLines = marketData.slice(0, 15); // safeguard
+  const trimmedMarketLines = marketData.slice(0, 15);
   const trimmedNews = news.map(n => ({ ...n, content: (n.content || '').slice(0, 600) }));
 
-  const basePrompt = `You are a professional cryptocurrency analyst.\nQUERY: ${query}\nCURRENT DATE: ${new Date().toISOString().split('T')[0]}\nMARKET DATA:\n${trimmedMarketLines.map(c => `- ${c.name} (${c.symbol.toUpperCase()}): $${c.current_price} 24h ${c.price_change_percentage_24h?.toFixed(2)}% MCAP $${c.market_cap?.toLocaleString()}`).join('\n')}\nNEWS:\n${trimmedNews.map((n,i)=>`${i+1}. ${n.title} | ${n.url} | ${(n.content||'').substring(0,400)}`).join('\n')}\nTASK: Produce a concise, markdown-formatted report with sections: Executive Summary, Market Analysis, Recent Developments, Risks, Outlook & Recommendations, Disclaimer. Do NOT invent dates; if missing write 'Unknown'. Ensure all required sections are present.`;
+  const basePrompt = `You are a professional cryptocurrency analyst.
+QUERY: ${query}
+CURRENT DATE: ${new Date().toISOString().split('T')[0]}
+MARKET DATA:
+${trimmedMarketLines.map(c => `- ${c.name} (${c.symbol.toUpperCase()}): $${c.current_price} 24h ${c.price_change_percentage_24h?.toFixed(2)}% MCAP $${c.market_cap?.toLocaleString()}`).join('\n')}
+NEWS:
+${trimmedNews.map((n,i)=>`${i+1}. ${n.title} | ${n.url} | ${(n.content||'').substring(0,400)}`).join('\n')}
+TASK: Produce a concise, markdown-formatted report with sections: Executive Summary, Market Analysis, Recent Developments, Risks, Outlook & Recommendations, Disclaimer. Do NOT invent dates; if missing write 'Unknown'. Ensure all required sections are present.`;
 
   const requiredSections = [
     'Executive Summary',
     'Market Analysis',
     'Recent Developments',
     'Risks',
-    'Outlook', // substring match acceptable
+    'Outlook',
     'Disclaimer'
   ];
 
@@ -183,28 +222,33 @@ const reportAgent = makeAgent('report', async (ctx) => {
     if (!text) return true;
     const lower = text.toLowerCase();
     const missing = requiredSections.some(h => !lower.includes(h.toLowerCase()));
-    const suspiciousTail = /\(Source:[^\n]*$/.test(text); // cut mid parenthetical
-  const reasonFlag = finishReason ? /length|max/.test(finishReason) : false;
-  return missing || suspiciousTail || reasonFlag;
+    const suspiciousTail = /\(Source:[^\n]*$/.test(text);
+    const reasonFlag = finishReason ? /length|max/.test(finishReason) : false;
+    return missing || suspiciousTail || reasonFlag;
   }
 
   try {
-  const model = google(env.LLM_MODEL || 'gemini-2.0-flash-exp');
-  const maxTokens = 2500; // fixed cap; adjust if env adds configurable value later
+    const model = google(env.LLM_MODEL || 'gemini-2.0-flash-exp');
+    const maxTokens = 2500;
     const first = await generateText({ model, prompt: basePrompt, maxTokens, temperature: 0.6 });
     let report = first.text;
     const finishReason: string | undefined = (first as any).finishReason;
+
     if (isIncomplete(report, finishReason)) {
-      const continuationPrompt = `The previous report may have been truncated or is missing required sections. Current partial content below:\n---\n${report}\n---\nContinue ONLY from where it left off. Do NOT repeat already complete sections. If any required section is missing or incomplete, provide it. End with a complete 'Disclaimer' section.`;
+      const continuationPrompt = `The previous report may have been truncated or is missing required sections. Current partial content below:
+---
+${report}
+---
+Continue ONLY from where it left off. Do NOT repeat already complete sections. If any required section is missing or incomplete, provide it. End with a complete 'Disclaimer' section.`;
       const second = await generateText({ model, prompt: continuationPrompt, maxTokens: Math.min(maxTokens / 2, 1200), temperature: 0.55 });
       const cleanedSecond = second.text.trim();
       if (cleanedSecond && !report.includes(cleanedSecond)) {
         if (/##\s*Disclaimer/i.test(report) && /##\s*Disclaimer/i.test(cleanedSecond)) {
           const existing = report.match(/##\s*Disclaimer[\s\S]*$/i)?.[0] || '';
-            const newDisc = cleanedSecond.match(/##\s*Disclaimer[\s\S]*$/i)?.[0] || '';
-            if (newDisc.length > existing.length) {
-              report = report.replace(existing, newDisc);
-            }
+          const newDisc = cleanedSecond.match(/##\s*Disclaimer[\s\S]*$/i)?.[0] || '';
+          if (newDisc.length > existing.length) {
+            report = report.replace(existing, newDisc);
+          }
         } else {
           report += (report.endsWith('\n') ? '' : '\n') + cleanedSecond + '\n';
         }
@@ -212,11 +256,24 @@ const reportAgent = makeAgent('report', async (ctx) => {
     }
     return { finalReport: report };
   } catch (e: any) {
-    const fallback = `# Crypto Report\n\n## Query\n${query}\n\n## Market Snapshot\n${marketData.map(c=>`- ${c.name}: $${c.current_price} (${c.price_change_percentage_24h?.toFixed(2)}% 24h)`).join('\n')}\n\n## News\n${news.map(n=>`- ${n.title} (${n.publishedDate||'Unknown'})`).join('\n')}\n\n## Disclaimer\nInformational only; not financial advice.`;
+    const fallback = `# Crypto Report
+
+## Query
+${query}
+
+## Market Snapshot
+${marketData.map(c=>`- ${c.name}: $${c.current_price} (${c.price_change_percentage_24h?.toFixed(2)}% 24h)`).join('\n')}
+
+## News
+${news.map(n=>`- ${n.title} (${n.publishedDate||'Unknown'})`).join('\n')}
+
+## Disclaimer
+Informational only; not financial advice.`;
     return { finalReport: fallback, errors: [...ctx.errors, 'LLM report generation failed'] };
   }
 });
 
+/* ---------- DAG Nodes ---------- */
 const nodes: Node[] = [
   { name: 'initial_parallel', deps: [], run: (ctx) => parallelInitial.run(ctx) },
   { name: 'tokenMatcher', deps: ['initial_parallel'], run: (ctx) => tokenMatcherAgent.run(ctx) },
@@ -226,7 +283,6 @@ const nodes: Node[] = [
 ];
 
 /* ---------- DAG Executor ---------- */
-
 export async function runDAGPipeline(query: string): Promise<PipelineContext> {
   const ctx: PipelineContext = { rawQuery: query, errors: [] };
   const completed = new Set<string>();

@@ -1,4 +1,11 @@
 import { PipelineContext } from './dag-orchestrator';
+
+export interface AgentWrapper {
+  runner: {
+    ask: (prompt: string) => Promise<any>;
+  };
+}
+
 export interface Agent {
   name: string;
   run: (ctx: PipelineContext) => Promise<Partial<PipelineContext>>;
