@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { AgentBuilder } from "@iqai/adk";
 import { openai } from "@ai-sdk/openai";
-import { config } from "../config.js";
+import { config } from "../config";
 
 function getCurrentDateFormatted(): string {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });

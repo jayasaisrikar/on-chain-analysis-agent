@@ -88,12 +88,29 @@ export interface MarketData {
   id: string;
   symbol: string;
   name: string;
-  market_cap: number;
-  total_volume: number;
   current_price: number;
-  price_change_percentage_24h: number;
+  market_cap: number;
+  market_cap_rank?: number;
+  fully_diluted_valuation?: number;
+  total_volume: number;
   high_24h: number;
   low_24h: number;
+  price_change_24h?: number;
+  price_change_percentage_24h: number;
+  price_change_percentage_7d?: number;
+  price_change_percentage_30d?: number;
+  market_cap_change_24h?: number;
+  market_cap_change_percentage_24h?: number;
+  circulating_supply?: number;
+  total_supply?: number;
+  max_supply?: number;
+  ath?: number;
+  ath_change_percentage?: number;
+  ath_date?: string;
+  atl?: number;
+  atl_change_percentage?: number;
+  atl_date?: string;
+  last_updated?: string;
 }
 
 export interface CoinInfo {
@@ -125,28 +142,4 @@ export interface AugmentedCoinData {
 export interface KnowledgeBaseIndex {
   symbolMap: Map<string, CoinInfo>;
   nameMap: Map<string, CoinInfo>;
-}
-
-export interface MemoryData {
-  [key: string]: any;
-}
-
-export interface ScrapingMethod {
-  name: string;
-  execute: (url: string) => Promise<{ content: string; html: string }>;
-}
-
-export interface RateLimitOptions {
-  batchSize: number;
-  minDelayMs: number;
-  maxRetries: number;
-}
-
-export interface ScrapingConfig {
-  maxConcurrent: number;
-  timeout: number;
-  maxRetries: number;
-  skipSlowMethods: boolean;
-  skipProblematicDomains: string[];
-  fastMethods: string[];
 }

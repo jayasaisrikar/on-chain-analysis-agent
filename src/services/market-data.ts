@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { AgentBuilder } from "@iqai/adk";
 import { openai } from "@ai-sdk/openai";
 import { removeStopwords, eng } from 'stopword';
-import { config } from "../config.js";
+import { config } from "../config";
 
 interface MarketData {
   id: string;
@@ -85,7 +85,7 @@ export async function getCachedKnowledgeBase() {
     
     if (!isExpired) {
       const cached = JSON.parse(await fs.readFile(CACHE_FILE, 'utf8'));
-      console.log(`✅ Using cached knowledge base (${cached.length} filtered coins) - Cache age: ${Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60))} minutes`);
+  // Using cached knowledge base
       return cached;
     } else {
       console.log('🔄 Cache expired, fetching fresh data...');
@@ -108,20 +108,20 @@ export async function getCachedKnowledgeBase() {
 
 async function setupFilteredKnowledgeBase() {
   try {
-    console.log("Setting up filtered knowledge base: fetching high-quality CoinGecko assets...");
+  // Setting up filtered knowledge base
     const apiKey = process.env.COINGECKO_API_KEY;
     if (!apiKey) {
       throw new Error('❌ COINGECKO_API_KEY environment variable not set.');
     }
     
-    console.log("Fetching filtered market data (>$1M market cap, >$10K volume)...");
+  // Fetching filtered market data
     const filteredMarketData = await fetchFilteredMarketData({ 
       apiKey, 
       minMarketCap: 1_000_000, 
       minVolume: 10_000 
     });
 
-    console.log(`✅ Retrieved ${filteredMarketData.length} high-quality coins (market cap >= $1M and volume >= $10K)`);
+  // Retrieved high-quality coins
 
     const filteredCoins = filteredMarketData.map(coin => ({
       id: coin.id,
@@ -131,7 +131,7 @@ async function setupFilteredKnowledgeBase() {
 
     return filteredCoins;
   } catch (error) {
-    console.error("❌ Fatal Error: Could not fetch CoinGecko asset list. The application cannot continue.");
+  // Fatal Error: Could not fetch CoinGecko asset list
     process.exit(1);
   }
 }
@@ -149,7 +149,7 @@ function findTokenMatches(
     
     const commonWords = ['protocol', 'token', 'coin', 'network', 'chain', 'finance'];
     if (commonWords.includes(lowerToken)) {
-      console.log(`⏭️ Skipping common word: ${lowerToken}`);
+  // Skipping common word
       continue;
     }
     
@@ -160,21 +160,21 @@ function findTokenMatches(
       if (assetSymbol === lowerToken && !foundIds.has(asset.id)) {
         matches.push(asset);
         foundIds.add(asset.id);
-        console.log(`🎯 Found exact symbol match in ${listType} data for "${token}": ${asset.name}`);
+  // Found exact symbol match
         break;
       }
       
       if (assetName === lowerToken && !foundIds.has(asset.id)) {
         matches.push(asset);
         foundIds.add(asset.id);
-        console.log(`🎯 Found exact name match in ${listType} data for "${token}": ${asset.name}`);
+  // Found exact name match
         break;
       }
       
       if (assetName.includes(lowerToken) && lowerToken.length > 2 && !foundIds.has(asset.id)) {
         matches.push(asset);
         foundIds.add(asset.id);
-        console.log(`🎯 Found partial match in ${listType} data for "${token}": ${asset.name}`);
+  // Found partial match
         break;
       }
     }
@@ -254,7 +254,7 @@ Provide the confidence percentage (0-100%) based on semantic matching quality, t
     
     const isValid = decision === 'VALID' && confidencePercentage >= 60;
     
-    console.log(`🤖 LLM Semantic Analysis: ${decision} (Confidence: ${confidencePercentage}%)`);
+  // LLM Semantic Analysis
     
     if (!isValid) {
       const suggestions = foundMatches.slice(0, 3);
@@ -275,7 +275,7 @@ Provide the confidence percentage (0-100%) based on semantic matching quality, t
         token.toLowerCase() === match.name.toLowerCase()
       )
     );
-    console.log(`🔄 Fallback validation: ${hasExactMatch ? 'ACCEPTED' : 'REJECTED'}`);
+  // Fallback validation
     return { isValid: hasExactMatch, confidence: hasExactMatch ? 100 : 0 };
   }
 }
@@ -284,7 +284,7 @@ export async function retrieveCoinIDs(
   potentialTokens: string[],
   knowledgeBase: Array<{ id: string; symbol: string; name: string }>
 ): Promise<Array<{ name: string; id: string; symbol: string }> | { error: string; suggestions?: Array<{ name: string; id: string; symbol: string }> }> {
-  console.log('🔍 Searching for tokens:', potentialTokens);
+  // Searching for tokens
 
   if (potentialTokens.length === 0) {
     return [];
@@ -293,22 +293,22 @@ export async function retrieveCoinIDs(
   const matches = findTokenMatches(potentialTokens, knowledgeBase, 'filtered');
   
   if (matches.length === 0) {
-    console.log('❌ No matches found in filtered knowledge base');
+  // No matches found in filtered knowledge base
     return {
       error: "Sorry, we only serve mid to popular coins for now. Please ask about well-known cryptocurrencies."
     };
   }
 
-  console.log('🤖 Analyzing match confidence with LLM...');
+  // Analyzing match confidence with LLM
   const llmResult = await calculateMatchPercentageWithLLM(potentialTokens, matches);
   
   if (!llmResult.isValid) {
     const confidence = llmResult.confidence || 0;
-    console.log(`📉 LLM determined low match confidence (${confidence}%)`);
+  // LLM determined low match confidence
     
     if (confidence > 0 && confidence < 60 && llmResult.suggestions && llmResult.suggestions.length > 0) {
       const matchedTokens = llmResult.suggestions.map(s => s.name).join(', ');
-      console.log(`🎯 Found partial matches: ${matchedTokens}`);
+  // Found partial matches
       return {
         error: `Match confidence is ${confidence}% (below 60% threshold). Found these tokens: ${matchedTokens}. Please clarify by using complete token names from this list to improve accuracy.`,
         suggestions: llmResult.suggestions
@@ -321,37 +321,55 @@ export async function retrieveCoinIDs(
     }
   }
 
-  console.log(`✅ LLM validated ${matches.length} matches with ${llmResult.confidence}% confidence`);
+  // LLM validated matches
   return matches;
 }
 
-export async function fetchDetailedCoinData(detectedAssets: Array<{ id: string; name: string }>): Promise<any> {
+export async function fetchDetailedCoinData(detectedAssets: Array<{ id: string; name: string }>): Promise<any[]> {
   if (detectedAssets.length === 0) {
-    return {};
+    return [];
   }
   
   const coinIds = detectedAssets.map(asset => asset.id).join(',');
-  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coinIds}`;
+  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coinIds}&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true`;
   try {
-    console.log(`\n📈 Augmenting data by fetching market details for: ${coinIds}`);
+  // Augmenting data by fetching market details
     const { data } = await axios.get(url);
-    const augmentedData: Record<string, any> = {};
-    for (const item of data) {
-      augmentedData[item.id] = {
-        name: item.name,
-        symbol: item.symbol,
-        current_price: item.current_price,
-        market_cap: item.market_cap,
-        price_change_24h: item.price_change_percentage_24h,
-        high_24h: item.high_24h,
-        low_24h: item.low_24h
-      };
-    }
-    console.log('✅ Successfully augmented data.');
+    
+    const augmentedData = data.map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      symbol: item.symbol,
+      current_price: item.current_price,
+      market_cap: item.market_cap,
+      market_cap_rank: item.market_cap_rank,
+      fully_diluted_valuation: item.fully_diluted_valuation,
+      total_volume: item.total_volume,
+      high_24h: item.high_24h,
+      low_24h: item.low_24h,
+      price_change_24h: item.price_change_24h,
+      price_change_percentage_24h: item.price_change_percentage_24h,
+      price_change_percentage_7d: item.price_change_percentage_7d_in_currency,
+      price_change_percentage_30d: item.price_change_percentage_30d_in_currency,
+      market_cap_change_24h: item.market_cap_change_24h,
+      market_cap_change_percentage_24h: item.market_cap_change_percentage_24h,
+      circulating_supply: item.circulating_supply,
+      total_supply: item.total_supply,
+      max_supply: item.max_supply,
+      ath: item.ath,
+      ath_change_percentage: item.ath_change_percentage,
+      ath_date: item.ath_date,
+      atl: item.atl,
+      atl_change_percentage: item.atl_change_percentage,
+      atl_date: item.atl_date,
+      last_updated: item.last_updated
+    }));
+    
+  // Successfully augmented data
     return augmentedData;
   } catch (error: any) {
     console.error("⚠️ Could not fetch detailed market data.", error.message);
-    return {};
+    return [];
   }
 }
 
@@ -380,7 +398,7 @@ export class MarketDataService {
 
   async setupKnowledgeBase() {
     this.knowledgeBase = await getCachedKnowledgeBase();
-    console.log(`🧠 Knowledge base loaded with ${this.knowledgeBase.length} filtered assets.`);
+  // Knowledge base loaded
   }
 
   async retrieveCoinIDs(query: string) {
@@ -388,7 +406,7 @@ export class MarketDataService {
         throw new Error("Knowledge base not initialized. Call setupKnowledgeBase() first.");
     }
     const potentialTokens = extractPotentialTokens(query);
-    console.log('🔍 Extracted potential tokens from query:', potentialTokens);
+  // Extracted potential tokens from query
     return await retrieveCoinIDs(potentialTokens, this.knowledgeBase);
   }
 

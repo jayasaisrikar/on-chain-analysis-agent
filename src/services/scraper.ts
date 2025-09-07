@@ -3,8 +3,8 @@ import * as cheerio from 'cheerio';
 import { chromium, Browser } from 'playwright';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { ScrapedContent } from "../types/index.js";
-import { DateExtractor } from "../utils/date-extractor.js";
+import { ScrapedContent } from "../types/index";
+import { DateExtractor } from "../utils/date-extractor";
 
 const userAgents = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -17,6 +17,25 @@ const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgent
 export class WebScraper {
   private browser?: Browser;
   private timeout = 10000;
+  
+  private sanitize(text: string): string {
+    if (!text) return '';
+    let t = text;
+    // Remove typical CSS class/id blocks e.g. .class {...}
+    t = t.replace(/\.[a-zA-Z0-9_-]{1,60}[^\n{]{0,80}\{[^}]{1,1200}\}/g, ' ');
+    // Remove @media queries
+    t = t.replace(/@media[^\{]+\{[^}]+\}/g, ' ');
+    // Remove leftover multiple closing braces
+    t = t.replace(/}\s*}/g, ' ');
+    // Heuristic: drop lines with many colons / semicolons (CSS noise)
+    t = t.split(/\n+/).filter(line => {
+      const cssTokens = (line.match(/:/g) || []).length + (line.match(/;/g) || []).length;
+      return cssTokens < 5;
+    }).join(' ');
+    // Collapse whitespace
+    t = t.replace(/\s+/g, ' ').trim();
+    return t.substring(0, 8000);
+  }
 
   async scrapeMultiple(urls: string[]): Promise<ScrapedContent[]> {
     console.log(`🌐 Scraping ${urls.length} URLs...`);
@@ -91,8 +110,9 @@ export class WebScraper {
       const $ = cheerio.load(html);
       
       const title = $('title').text().trim() || $('h1').first().text().trim() || 'No title';
-      
-      const dom = new JSDOM(html, { url });
+      $('style, script, nav, footer, aside, noscript').remove();
+      const cleanedHtml = $.html();
+      const dom = new JSDOM(cleanedHtml, { url });
       const reader = new Readability(dom.window.document);
       const article = reader.parse();
       
@@ -106,6 +126,7 @@ export class WebScraper {
       if (content.length < 100) {
         throw new Error('Insufficient content');
       }
+      content = this.sanitize(content);
       
       const publishedDate = DateExtractor.extractPublicationDate(html, url);
       
@@ -113,7 +134,7 @@ export class WebScraper {
         url,
         title,
         content,
-        cleanedContent: content.substring(0, 8000),
+        cleanedContent: content,
         publishedDate: publishedDate || undefined,
         metadata: {
           relevanceScore: 1.0,
@@ -122,7 +143,7 @@ export class WebScraper {
         }
       };
     } catch (error) {
-      console.error(`Content extraction failed for ${url}: ${error}`);
+      console.warn(`Content extraction failed for ${url}: ${error}`);
       return null;
     }
   }
