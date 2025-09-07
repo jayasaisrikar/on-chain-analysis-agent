@@ -1,12 +1,9 @@
 import { PipelineContext } from './dag-orchestrator';
-
-/** Minimal Agent interface returning partial context mutations */
 export interface Agent {
   name: string;
   run: (ctx: PipelineContext) => Promise<Partial<PipelineContext>>;
 }
 
-/** Execute sub‑agents concurrently and merge their deltas */
 export class ParallelAgent implements Agent {
   name: string;
   private subAgents: Agent[];
@@ -31,7 +28,6 @@ export class ParallelAgent implements Agent {
   }
 }
 
-/** Utility to build a simple inline agent */
 export function makeAgent(name: string, fn: (ctx: PipelineContext) => Promise<Partial<PipelineContext>>): Agent {
   return { name, run: fn };
 }

@@ -34,16 +34,13 @@ type Node = {
 };
 
 /* ---------- DAG Nodes ---------- */
-
-// Lazy singletons for agent instances
+// lazy singletons for agent instances
 let synonymAgentInstance: any = null;
 let marketDataAgentInstance: any = null;
-let researchAgentInstance: any = null; // (not actively used in current optimized path)
+let researchAgentInstance: any = null;
 
-// Helper: extract first JSON object or array from a string
 function extractJson<T = any>(text: string): T | null {
   try {
-    // Try full parse first
     return JSON.parse(text);
   } catch {}
   const objMatch = text.match(/\{[\s\S]*\}/);
@@ -127,8 +124,6 @@ const parallelPostMatcher = new ParallelAgent({
   subAgents: [synonymsAgent, marketAugmentorAgent]
 });
 
-// researchAgentInstance declared earlier
-
 const searchAndScrapeAgent = makeAgent('searchAndScrape', async (ctx) => {
   const base = ctx.sanitizedQuery || ctx.rawQuery;
   const syns = (ctx.synonymQueries || []).filter(s => s && s !== base);
@@ -170,7 +165,6 @@ const reportAgent = makeAgent('report', async (ctx) => {
     publishedDate: s.publishedDate
   })).slice(0, 8);
 
-  // Trim market/news if too large to reduce token pressure
   const trimmedMarketLines = marketData.slice(0, 15); // safeguard
   const trimmedNews = news.map(n => ({ ...n, content: (n.content || '').slice(0, 600) }));
 
@@ -187,7 +181,6 @@ const reportAgent = makeAgent('report', async (ctx) => {
 
   function isIncomplete(text: string, finishReason?: string): boolean {
     if (!text) return true;
-    // If finish reason indicates length (model dependent) or missing any required heading
     const lower = text.toLowerCase();
     const missing = requiredSections.some(h => !lower.includes(h.toLowerCase()));
     const suspiciousTail = /\(Source:[^\n]*$/.test(text); // cut mid parenthetical
@@ -200,18 +193,13 @@ const reportAgent = makeAgent('report', async (ctx) => {
   const maxTokens = 2500; // fixed cap; adjust if env adds configurable value later
     const first = await generateText({ model, prompt: basePrompt, maxTokens, temperature: 0.6 });
     let report = first.text;
-    // We attempt at most one continuation to avoid runaway usage.
-    // @ts-ignore (finishReason may exist depending on sdk version)
     const finishReason: string | undefined = (first as any).finishReason;
     if (isIncomplete(report, finishReason)) {
       const continuationPrompt = `The previous report may have been truncated or is missing required sections. Current partial content below:\n---\n${report}\n---\nContinue ONLY from where it left off. Do NOT repeat already complete sections. If any required section is missing or incomplete, provide it. End with a complete 'Disclaimer' section.`;
       const second = await generateText({ model, prompt: continuationPrompt, maxTokens: Math.min(maxTokens / 2, 1200), temperature: 0.55 });
-      // Simple merge: if second starts with a heading already present at end, just append.
       const cleanedSecond = second.text.trim();
       if (cleanedSecond && !report.includes(cleanedSecond)) {
-        // Avoid duplicating disclaimer
         if (/##\s*Disclaimer/i.test(report) && /##\s*Disclaimer/i.test(cleanedSecond)) {
-          // If disclaimer exists in both, keep the longer version
           const existing = report.match(/##\s*Disclaimer[\s\S]*$/i)?.[0] || '';
             const newDisc = cleanedSecond.match(/##\s*Disclaimer[\s\S]*$/i)?.[0] || '';
             if (newDisc.length > existing.length) {

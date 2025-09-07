@@ -96,7 +96,6 @@ export class ResearchService {
       }
     } catch (e) {
       console.warn(`Primary search (${searchEngine}) failed:`, e);
-      // Fallback logic
       if (searchEngine === 'exa') {
         try {
           resultAggregate = await this.searchService.searchTavilyOnly([query]);
@@ -125,7 +124,6 @@ export class ResearchService {
 
   private async scrapeUrls(urls: string[]): Promise<CoreScrapedContent[]> {
     const scraped = await this.scraper.scrapeMultiple(urls.slice(0, 10));
-    // Map to core ScrapedContent (ensure timestamp & minimal fields)
     return scraped.map(s => ({
       url: s.url,
       title: s.title,

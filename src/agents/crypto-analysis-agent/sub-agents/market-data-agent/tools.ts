@@ -46,13 +46,11 @@ export class MarketDataService {
     symbols?: string[];
     topCount?: number;
   }): Promise<MarketData[] | string[]> {
-    // Use the centralized cached knowledge base and detailed fetch helpers
     switch (action) {
       case 'getTopCoins': {
         const kb: KBEntry[] = await getCachedKnowledgeBase();
         const count = topCount || 10;
         const top = kb.slice(0, count);
-        // convert to shape expected by fetchDetailedCoinData
         const assets = top.map((a: KBEntry) => ({ id: a.id, name: a.name }));
         return await fetchDetailedCoinData(assets);
       }
