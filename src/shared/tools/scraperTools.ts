@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 import fs from 'fs/promises';
 import path from 'path';
 import { Readability } from '@mozilla/readability';
+import { InMemorySessionService } from '@iqai/adk';
 import { ScrapedContent } from "../../types/index";
 import { DateExtractor } from "../../utils/date-extractor";
 
@@ -22,8 +23,8 @@ const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgent
 export class ScraperTools {
   private browser?: Browser;
   private timeout = 10000;
-  private sessionService: any | undefined;
-  private session: any | undefined;
+  private sessionService: InMemorySessionService | undefined;
+  private session: Record<string, any> | undefined;
   private sessionStatePath = path.resolve(process.cwd(), 'data', 'cache', 'scraper_session.json');
 
   async scrapeMultiple(urls: string[]): Promise<ScrapedContent[]> {
@@ -62,9 +63,9 @@ export class ScraperTools {
             }
 
             // Try to update remote ADK session if API exists
-            if (this.sessionService && typeof this.sessionService.updateSession === 'function' && this.session?.id) {
+            if (this.sessionService && typeof (this.sessionService as any).updateSession === 'function' && this.session?.id) {
               try {
-                await this.sessionService.updateSession(this.session.id, { lastScrapedAt: now, lastUrl: url });
+                await (this.sessionService as any).updateSession(this.session.id, { lastScrapedAt: now, lastUrl: url });
               } catch (err) {
                 // non-fatal
                 const msg = err instanceof Error ? err.message : String(err);
@@ -92,27 +93,26 @@ export class ScraperTools {
 
   private async createSessionForScraper(appName: string, userId: string, initialState: Record<string, any> = {}): Promise<void> {
     try {
-      const adk = await import('@iqai/adk');
-      const InMemorySessionService = adk.InMemorySessionService;
-      if (!InMemorySessionService) {
-        console.warn('InMemorySessionService not found in @iqai/adk');
-        return;
-      }
-
+      // Use the ADK InMemorySessionService strictly (static import)
       this.sessionService = new InMemorySessionService();
+
+      // Merge persisted disk state into initial state if present
       try {
         const persisted = await this.readSessionState();
         if (persisted) {
           initialState = { ...initialState, ...persisted };
         }
       } catch (err) {
+        // ignore read errors
       }
 
       this.session = await this.sessionService.createSession(appName, userId, initialState);
       console.log('ADK session created:', { appName, userId, sessionId: this.session?.id });
+
       try {
         await this.writeSessionState(initialState);
       } catch (err) {
+        // non-fatal
       }
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
