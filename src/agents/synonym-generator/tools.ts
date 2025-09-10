@@ -34,8 +34,7 @@ export class SynonymGenerationTool extends BaseTool {
     const timer = new PerformanceTimer('Synonym Generation Tool');
     
     try {
-      // Import the agent here to avoid circular dependencies
-      const { synonymGeneratorAgent } = await import('./agent.js');
+      const { synonymGeneratorAgent } = await import('./agent');
       const agent = await synonymGeneratorAgent;
 
       const result = await agent.runner.ask(`Generate synonym search queries for: "${args.originalQuery}"`);
@@ -75,7 +74,6 @@ export class SynonymGenerationTool extends BaseTool {
   }
 }
 
-// Utility function for backwards compatibility
 export async function generateSynonyms(originalQuery: string): Promise<SynonymResponse> {
   const tool = new SynonymGenerationTool();
   return await tool.runAsync({ originalQuery });

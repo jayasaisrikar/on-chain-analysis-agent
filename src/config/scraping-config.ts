@@ -1,4 +1,4 @@
-import { ScrapingConfig } from '../types/index.js';
+import { ScrapingConfig } from '../types/index';
 
 const defaultConfig: ScrapingConfig = {
   maxConcurrent: 6,

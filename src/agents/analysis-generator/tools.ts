@@ -33,7 +33,6 @@ export class AnalysisGenerationTool extends BaseTool {
     const timer = new PerformanceTimer('Analysis Generation Tool');
     
     try {
-      // Import the agent here to avoid circular dependencies
       const { analysisGeneratorAgent } = await import('./agent.js');
       const agent = await analysisGeneratorAgent;
 

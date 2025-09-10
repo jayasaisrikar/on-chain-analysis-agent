@@ -1,4 +1,4 @@
-export { queryValidatorAgent } from './query-validator/agent.js';
-export { synonymGeneratorAgent } from './synonym-generator/agent.js';
-export { analysisGeneratorAgent } from './analysis-generator/agent.js';
-export { tokenIdentifierAgent } from './token-identifier/agent.js';
+export { queryValidatorAgent } from './query-validator/agent';
+export { synonymGeneratorAgent } from './synonym-generator/agent';
+export { analysisGeneratorAgent } from './analysis-generator/agent';
+export { tokenIdentifierAgent } from './token-identifier/agent';

@@ -3,7 +3,7 @@ import { queryValidatorAgent } from './agents/query-validator/agent';
 import { synonymGeneratorAgent } from './agents/synonym-generator/agent';
 import { analysisGeneratorAgent } from './agents/analysis-generator/agent';
 import { tokenIdentifierAgent } from './agents/token-identifier/agent';
-import { SearchTools, ScraperTools, MarketDataTools } from './shared/tools/index.js';
+import { SearchTools, ScraperTools, MarketDataTools } from './shared/tools/index';
 
 function getCurrentDateFormatted(): string {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });

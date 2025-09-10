@@ -1,6 +1,6 @@
 import { TavilyClient } from "tavily";
 import { Exa } from "exa-js";
-import { config } from "../../config.js";
+import { config } from "../../config";
 
 interface TavilyResult {
   url: string;

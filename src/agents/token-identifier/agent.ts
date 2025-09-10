@@ -1,12 +1,11 @@
 import { AgentBuilder } from "@iqai/adk";
 import { openai } from "@ai-sdk/openai";
-import { config } from "../../config.js";
+import { config } from "../../config";
 
 /**
  * Token Identifier Agent for detecting cryptocurrency tokens in user queries
  */
 async function createTokenIdentifierAgent() {
-  // We'll get the knowledge base when needed from MarketDataTools
   const instruction = `You are a cryptocurrency token identification expert. Given a user query, identify ALL cryptocurrency tokens, coins, or digital assets mentioned.
 
 TASK: Analyze the user query and extract all cryptocurrency references. Return a JSON array of objects with this format:

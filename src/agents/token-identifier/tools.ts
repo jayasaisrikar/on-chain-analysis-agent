@@ -1,6 +1,6 @@
 import { BaseTool } from "@iqai/adk";
 import { removeStopwords, eng } from 'stopword';
-import { MarketDataTools } from "../../shared/tools/marketDataTools.js";
+import { MarketDataTools } from "../../shared/tools/marketDataTools";
 
 interface DetectedAsset {
   name: string;

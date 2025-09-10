@@ -27,15 +27,14 @@ export class CryptoQueryValidationTool extends BaseTool {
         },
         required: ['query']
       }
-    } as any; // Using any to bypass type checking for now
+    } as any;
   }
 
   async runAsync(args: { query: string }): Promise<QueryValidationResult> {
     const timer = new PerformanceTimer('Query Validation Tool');
     
     try {
-      // Import the agent here to avoid circular dependencies
-      const { queryValidatorAgent } = await import('./agent.js');
+      const { queryValidatorAgent } = await import('./agent');
       const agent = await queryValidatorAgent;
       
       const result = await agent.runner.ask(args.query);
@@ -57,7 +56,6 @@ export class CryptoQueryValidationTool extends BaseTool {
   }
 }
 
-// Utility function for backwards compatibility
 export async function validateCryptoQuery(query: string): Promise<QueryValidationResult> {
   const tool = new CryptoQueryValidationTool();
   return await tool.runAsync({ query });

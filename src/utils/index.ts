@@ -1,6 +1,6 @@
-import { Timer } from "../types/index.js";
+import { Timer } from "../types/index";
 
-export { DateExtractor } from "./date-extractor.js";
+export { DateExtractor } from "./date-extractor";
 
 export class PerformanceTimer implements Timer {
   private startTime: number;

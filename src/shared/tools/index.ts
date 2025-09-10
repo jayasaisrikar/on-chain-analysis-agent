@@ -1,3 +1,3 @@
-export { SearchTools } from './searchTools.js';
-export { ScraperTools } from './scraperTools.js';
-export { MarketDataTools } from './marketDataTools.js';
+export { SearchTools } from './searchTools';
+export { ScraperTools } from './scraperTools';
+export { MarketDataTools } from './marketDataTools';
