@@ -2,6 +2,8 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { chromium, Browser } from 'playwright';
 import { JSDOM } from 'jsdom';
+import fs from 'fs/promises';
+import path from 'path';
 import { Readability } from '@mozilla/readability';
 import { ScrapedContent } from "../../types/index";
 import { DateExtractor } from "../../utils/date-extractor";
@@ -20,26 +22,134 @@ const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgent
 export class ScraperTools {
   private browser?: Browser;
   private timeout = 10000;
+  private sessionService: any | undefined;
+  private session: any | undefined;
+  private sessionStatePath = path.resolve(process.cwd(), 'data', 'cache', 'scraper_session.json');
 
   async scrapeMultiple(urls: string[]): Promise<ScrapedContent[]> {
     console.log(`🌐 Scraping ${urls.length} URLs...`);
     const results: ScrapedContent[] = [];
-    
+    try {
+      if (!this.session) {
+        await this.createSessionForScraper('scraper-app', 'scraper-1', { current_step: 'start' });
+      }
+    } catch (err) {
+      console.warn('Failed to initialize ADK session (continuing without session):', err);
+    }
+
     for (const url of urls.slice(0, 10)) {
       try {
         const result = await this.scrapeUrl(url);
         if (result) {
-          results.push(result);
+          try {
+            const now = new Date().toISOString();
+            const scrapedEntry = {
+              url,
+              scrapedAt: now,
+              sessionId: this.session?.id ?? null
+            };
+
+            const newState = {
+              lastScrapedAt: now,
+              lastUrl: url,
+              // include a special key the writer knows to append into history
+              scrapedEntry
+            };
+
+            // Merge into in-memory session if present
+            if (this.session && typeof this.session === 'object') {
+              this.session = { ...this.session, lastScrapedAt: now, lastUrl: url };
+            }
+
+            // Try to update remote ADK session if API exists
+            if (this.sessionService && typeof this.sessionService.updateSession === 'function' && this.session?.id) {
+              try {
+                await this.sessionService.updateSession(this.session.id, { lastScrapedAt: now, lastUrl: url });
+              } catch (err) {
+                // non-fatal
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn('Failed to update ADK session:', msg);
+              }
+            }
+
+            // Persist to disk (this will append scrapedEntry into scrapedUrls array)
+            await this.writeSessionState(newState);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn('Failed to persist session state:', msg);
+          }
         }
       } catch (error) {
         console.warn(`Failed to scrape ${url}: ${error}`);
       }
-      
+
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
     console.log(`✅ Successfully scraped ${results.length} URLs`);
     return results;
+  }
+
+  private async createSessionForScraper(appName: string, userId: string, initialState: Record<string, any> = {}): Promise<void> {
+    try {
+      const adk = await import('@iqai/adk');
+      const InMemorySessionService = adk.InMemorySessionService;
+      if (!InMemorySessionService) {
+        console.warn('InMemorySessionService not found in @iqai/adk');
+        return;
+      }
+
+      this.sessionService = new InMemorySessionService();
+      try {
+        const persisted = await this.readSessionState();
+        if (persisted) {
+          initialState = { ...initialState, ...persisted };
+        }
+      } catch (err) {
+      }
+
+      this.session = await this.sessionService.createSession(appName, userId, initialState);
+      console.log('ADK session created:', { appName, userId, sessionId: this.session?.id });
+      try {
+        await this.writeSessionState(initialState);
+      } catch (err) {
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.warn('Could not create ADK in-memory session:', errMsg);
+    }
+  }
+
+  private async readSessionState(): Promise<Record<string, any> | null> {
+    try {
+      const raw = await fs.readFile(this.sessionStatePath, { encoding: 'utf8' });
+      return JSON.parse(raw);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  private async writeSessionState(state: Record<string, any>): Promise<void> {
+    try {
+      const dir = path.dirname(this.sessionStatePath);
+      await fs.mkdir(dir, { recursive: true });
+      let merged: Record<string, any> = {};
+      const existing = await this.readSessionState();
+      if (existing) merged = { ...existing };
+      if (state && Object.prototype.hasOwnProperty.call(state, 'scrapedEntry')) {
+        const { scrapedEntry, ...rest } = state as any;
+        merged.scrapedUrls = Array.isArray(merged.scrapedUrls) ? merged.scrapedUrls : [];
+        merged.scrapedUrls.push(scrapedEntry);
+        merged = { ...merged, ...rest };
+      } else {
+        merged = { ...merged, ...state };
+      }
+
+      merged.updatedAt = new Date().toISOString();
+      await fs.writeFile(this.sessionStatePath, JSON.stringify(merged, null, 2), { encoding: 'utf8' });
+    } catch (err) {
+      throw err;
+    }
   }
 
   async scrapeUrl(url: string): Promise<ScrapedContent | null> {
