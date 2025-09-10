@@ -1,6 +1,6 @@
 import { TavilyClient } from "tavily";
 import { Exa } from "exa-js";
-import { config } from "../config.js";
+import { config } from "../../config.js";
 
 interface TavilyResult {
   url: string;
@@ -23,7 +23,10 @@ interface SearchResult {
   source: 'exa' | 'tavily' | 'combined';
 }
 
-export class SearchService {
+/**
+ * Search tools for cryptocurrency research using Exa and Tavily APIs
+ */
+export class SearchTools {
   private tavilyClient: TavilyClient | null;
   private exaClient: Exa | null;
 
@@ -48,26 +51,20 @@ export class SearchService {
           text: { maxCharacters: 1000, includeHtmlTags: false }
         });
 
-        const formattedResults = result.results.map((item: any) => ({
-          url: item.url,
-          title: item.title || "No title",
-          content: item.text || "",
-          publishedDate: item.publishedDate || undefined,
-          score: item.score
-        }));
-
-        allResults.push(...formattedResults);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        allResults.push(...result.results.map(r => ({
+          url: r.url,
+          title: r.title || 'No title',
+          content: r.text || '',
+          publishedDate: r.publishedDate,
+          score: r.score
+        })));
       } catch (error) {
-        console.error(`Exa search failed for query "${query}":`, error);
+        console.warn(`Exa search failed for "${query}":`, error);
       }
     }
 
-    const urls = allResults.map(result => result.url);
-    console.log(`✅ Exa found ${allResults.length} results`);
-
     return {
-      urls,
+      urls: allResults.map(r => r.url),
       results: allResults,
       source: 'exa'
     };
@@ -81,7 +78,7 @@ export class SearchService {
     console.log(`🔍 Searching with Tavily (${queries.length} queries)`);
     const allResults: TavilyResult[] = [];
 
-    for (const query of queries.slice(0, 3)) {
+    for (const query of queries.slice(0, 5)) {
       try {
         const result = await this.tavilyClient.search(query);
 
@@ -93,42 +90,51 @@ export class SearchService {
         }));
 
         allResults.push(...formattedResults);
-        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (error) {
-        console.error(`Tavily search failed for query "${query}":`, error);
+        console.warn(`Tavily search failed for "${query}":`, error);
       }
     }
 
-    const urls = allResults.map(result => result.url);
-    console.log(`✅ Tavily found ${allResults.length} results`);
-
     return {
-      urls,
+      urls: allResults.map(r => r.url),
       results: allResults,
       source: 'tavily'
     };
   }
 
   async searchDualEngine(queries: string[]): Promise<SearchResult> {
-    console.log(`🔍 Searching with dual engine (Exa + Tavily)`);
+    if (!this.exaClient || !this.tavilyClient) {
+      return this.exaClient ? 
+        await this.searchExaOnly(queries) : 
+        await this.searchTavilyOnly(queries);
+    }
+
+    console.log(`🔍 Dual engine search (${queries.length} queries)`);
     
     const [exaResults, tavilyResults] = await Promise.allSettled([
-      this.exaClient ? this.searchExaOnly(queries) : Promise.resolve({ urls: [], results: [], source: 'exa' as const }),
-      this.tavilyClient ? this.searchTavilyOnly(queries) : Promise.resolve({ urls: [], results: [], source: 'tavily' as const })
+      this.searchExaOnly(queries.slice(0, 2)),
+      this.searchTavilyOnly(queries.slice(0, 3))
     ]);
 
-    const exa = exaResults.status === 'fulfilled' ? exaResults.value : { urls: [], results: [], source: 'exa' as const };
-    const tavily = tavilyResults.status === 'fulfilled' ? tavilyResults.value : { urls: [], results: [], source: 'tavily' as const };
+    const combinedResults: Array<TavilyResult | ExaResult> = [];
+    const urls: string[] = [];
 
-    const allUrls = [...exa.urls, ...tavily.urls];
-    const uniqueUrls = [...new Set(allUrls)];
-    const allResults = [...exa.results, ...tavily.results];
+    if (exaResults.status === 'fulfilled') {
+      combinedResults.push(...exaResults.value.results);
+      urls.push(...exaResults.value.urls);
+    }
 
-    console.log(`✅ Dual engine found ${allResults.length} total results, ${uniqueUrls.length} unique URLs`);
+    if (tavilyResults.status === 'fulfilled') {
+      const newTavilyResults = tavilyResults.value.results.filter(
+        r => !urls.includes(r.url)
+      );
+      combinedResults.push(...newTavilyResults);
+      urls.push(...newTavilyResults.map(r => r.url));
+    }
 
     return {
-      urls: uniqueUrls,
-      results: allResults,
+      urls,
+      results: combinedResults,
       source: 'combined'
     };
   }

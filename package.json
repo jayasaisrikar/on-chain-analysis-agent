@@ -3,15 +3,15 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Comprehensive cryptocurrency analysis pipeline using IQAI ADK",
-  "main": "dist/index.js",
+  "main": "dist/main.js",
   "scripts": {
-    "start": "npx tsx src/index.ts",
-    "dev": "npx tsx watch src/index.ts",
+    "start": "npx tsx src/main.ts",
+    "dev": "npx tsx watch src/main.ts",
     "build": "tsc",
     "watch": "tsc --watch",
     "clean": "rimraf dist",
     "lint": "eslint src/**/*.ts",
-    "analyze": "npx tsx src/index.ts"
+    "analyze": "npx tsx src/main.ts"
   },
   "keywords": [
     "crypto",

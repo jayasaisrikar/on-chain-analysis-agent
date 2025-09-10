@@ -3,8 +3,8 @@ import * as cheerio from 'cheerio';
 import { chromium, Browser } from 'playwright';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { ScrapedContent } from "../types/index.js";
-import { DateExtractor } from "../utils/date-extractor.js";
+import { ScrapedContent } from "../../types/index.js";
+import { DateExtractor } from "../../utils/date-extractor.js";
 
 const userAgents = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -14,7 +14,10 @@ const userAgents = [
 
 const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
 
-export class WebScraper {
+/**
+ * Web scraping tools for content extraction using multiple fallback methods
+ */
+export class ScraperTools {
   private browser?: Browser;
   private timeout = 10000;
 
@@ -54,75 +57,96 @@ export class WebScraper {
 
   private async tryAxiosMethod(url: string): Promise<ScrapedContent | null> {
     try {
-      const { data } = await axios.get(url, {
-        headers: { 'User-Agent': getRandomUserAgent() },
+      const response = await axios.get(url, {
         timeout: this.timeout,
-        maxRedirects: 3
+        headers: {
+          'User-Agent': getRandomUserAgent(),
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1'
+        }
       });
-      
-      return this.extractContent(url, data);
+
+      return this.extractContent(response.data, url);
     } catch (error) {
-      throw new Error(`Axios failed: ${error}`);
+      console.warn(`Axios method failed for ${url}: ${error}`);
+      return null;
     }
   }
 
   private async tryPlaywrightMethod(url: string): Promise<ScrapedContent | null> {
     try {
       if (!this.browser) {
-        this.browser = await chromium.launch({ headless: true });
+        this.browser = await chromium.launch({ 
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
       }
-      
-      const page = await this.browser.newPage({
+
+      const context = await this.browser.newContext({
         userAgent: getRandomUserAgent()
       });
+
+      const page = await context.newPage();
       
-      await page.goto(url, { timeout: this.timeout });
-      const html = await page.content();
-      await page.close();
-      
-      return this.extractContent(url, html);
+      await page.goto(url, { 
+        waitUntil: 'domcontentloaded',
+        timeout: this.timeout 
+      });
+
+      await page.waitForTimeout(2000);
+
+      const content = await page.content();
+      await context.close();
+
+      return this.extractContent(content, url);
     } catch (error) {
-      throw new Error(`Playwright failed: ${error}`);
+      console.warn(`Playwright method failed for ${url}: ${error}`);
+      return null;
     }
   }
 
-  private extractContent(url: string, html: string): ScrapedContent | null {
+  private extractContent(html: string, url: string): ScrapedContent | null {
     try {
       const $ = cheerio.load(html);
       
-      const title = $('title').text().trim() || $('h1').first().text().trim() || 'No title';
-      
+      $('script, style, nav, header, footer, aside, .advertisement, .ads, .cookie-banner').remove();
+
       const dom = new JSDOM(html, { url });
       const reader = new Readability(dom.window.document);
       const article = reader.parse();
-      
-      let content = '';
-      if (article && article.textContent) {
-        content = article.textContent.trim();
-      } else {
-        content = $('body').text().replace(/\s+/g, ' ').trim();
+
+      if (!article) {
+        throw new Error('Readability failed to parse content');
       }
-      
-      if (content.length < 100) {
-        throw new Error('Insufficient content');
+
+      const title = article.title || $('title').text() || 'No title found';
+      const content = article.textContent || $('body').text();
+
+      if (!content || content.trim().length < 100) {
+        throw new Error('Content too short or empty');
       }
-      
+
+      const dateExtractor = new DateExtractor();
       const publishedDate = DateExtractor.extractPublicationDate(html, url);
-      
+
       return {
         url,
-        title,
-        content,
-        cleanedContent: content.substring(0, 8000),
+        title: title.trim().substring(0, 200),
+        content: content.trim().substring(0, 3000),
+        cleanedContent: content.trim().substring(0, 3000),
         publishedDate: publishedDate || undefined,
         metadata: {
-          relevanceScore: 1.0,
+          relevanceScore: 0.8,
           wordCount: content.split(' ').length,
-          source: 'webscraper'
+          source: 'web_scraper'
         }
       };
     } catch (error) {
-      console.error(`Content extraction failed for ${url}: ${error}`);
+      console.warn(`Content extraction failed for ${url}: ${error}`);
       return null;
     }
   }

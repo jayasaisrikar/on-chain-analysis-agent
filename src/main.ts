@@ -1,9 +1,9 @@
 import "dotenv/config";
-import { SearchService } from './services/search.js';
-import { WebScraper } from './services/scraper.js';
-import { MarketDataService } from './services/market-data.js';
-import { SynonymGeneratorService, SynonymResponse } from './services/synonym-generator.js';
-import { AnalysisGenerator } from './agents/index.js';
+import { queryValidatorAgent } from './agents/query-validator/agent';
+import { synonymGeneratorAgent } from './agents/synonym-generator/agent';
+import { analysisGeneratorAgent } from './agents/analysis-generator/agent';
+import { tokenIdentifierAgent } from './agents/token-identifier/agent';
+import { SearchTools, ScraperTools, MarketDataTools } from './shared/tools/index.js';
 
 function getCurrentDateFormatted(): string {
   return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -33,9 +33,18 @@ interface ScrapedContent {
   url: string;
   title: string;
   content: string;
-  timestamp: Date;
-  publishedDate?: Date;
-  publishedDateString?: string;
+  cleanedContent: string;
+  publishedDate?: string;
+  metadata: {
+    relevanceScore: number;
+    wordCount: number;
+    source: string;
+  };
+}
+
+interface SynonymResponse {
+  synonyms: string[];
+  originalQuery: string;
 }
 
 function createAnalysisPrompt(scrapedContents: ScrapedContent[], synonymResponse: SynonymResponse, augmentedData: any): string {
@@ -74,16 +83,6 @@ ${synonymResponse.synonyms.map((query, index) => `${index + 1}. ${query}`).join(
   return prompt;
 }
 
-async function generateFinalAnalysis(analysisPrompt: string): Promise<string> {
-  try {
-    const analysisGenerator = new AnalysisGenerator();
-    return await analysisGenerator.generateFinalAnalysis(analysisPrompt);
-  } catch (error) {
-    console.error('Failed to generate analysis:', error);
-    return 'Analysis generation failed.';
-  }
-}
-
 async function main() {
   if (!userQuery.trim()) {
     console.log('❌ No query provided!');
@@ -109,28 +108,49 @@ async function main() {
   console.log(`🔍 Search Engine: ${searchEngine.toUpperCase()}`);
   console.log(`🚀 Starting crypto analysis for: "${userQuery}"`);
   
-  const synonymGeneratorService = new SynonymGeneratorService();
-  const marketDataService = new MarketDataService();
+  // Initialize tools
+  const marketDataTools = new MarketDataTools();
+  const searchTools = new SearchTools();
+  const scraperTools = new ScraperTools();
   
-  const validation = await synonymGeneratorService.validateCryptoQuery(userQuery);
-  if (!validation.isValid) {
-    console.log(validation.sanitizedQuery);
+  // Validate query using query-validator agent
+  const agent1 = await queryValidatorAgent;
+  const validationResult = await agent1.runner.ask(userQuery);
+  const validationContent = typeof validationResult === 'string' ? validationResult.trim() : JSON.stringify(validationResult);
+  
+  // Check if query is valid (not the default rejection message)
+  const isValid = !/^sorry, please ask about crypto-related insights\.?$/i.test(validationContent);
+  
+  if (!isValid) {
+    console.log(validationContent);
     return;
   }
+  
+  const validation = {
+    isValid: true,
+    sanitizedQuery: validationContent
+  };
   
   const timer = new Timer('Total Analysis');
   
   console.log('📦 Setting up knowledge base from CoinGecko...');
-  await marketDataService.setupKnowledgeBase();
+  await marketDataTools.setupKnowledgeBase();
   
-  const detectionResult = await marketDataService.retrieveCoinIDs(validation.sanitizedQuery);
+  // Identify tokens using token-identifier agent
+  const tokenAgent = await tokenIdentifierAgent;
+  const tokenResult = await tokenAgent.runner.ask(validation.sanitizedQuery);
+  const tokenResponse = typeof tokenResult === 'string' ? tokenResult.trim() : JSON.stringify(tokenResult);
+  
+  const detectionResult = marketDataTools.parseTokenIdentificationResponse(tokenResponse);
   
   if ('error' in detectionResult) {
     console.log('❌ Token detection failed:', detectionResult.error);
     
-    if (detectionResult.suggestions && detectionResult.suggestions.length > 0) {
+    // Get suggestions if tokens couldn't be identified
+    const suggestions = await marketDataTools.getSuggestions(validation.sanitizedQuery);
+    if (suggestions.length > 0) {
       console.log('\n💡 Suggested tokens based on your query:');
-      detectionResult.suggestions.forEach((suggestion, index) => {
+      suggestions.forEach((suggestion: any, index: number) => {
         console.log(`   ${index + 1}. ${suggestion.name} (${suggestion.symbol.toUpperCase()}) - ID: ${suggestion.id}`);
       });
       console.log('\n🎯 To improve accuracy, please rephrase your query using complete token names from the list above.');
@@ -146,59 +166,81 @@ async function main() {
   const detectedAssets = detectionResult as Array<{ name: string; id: string; symbol: string }>;
   console.log(`🪙 Detected ${detectedAssets.length} relevant coins`);
   
-  const synonymResponse = await synonymGeneratorService.generateSynonyms(validation.sanitizedQuery);
+  // Generate synonyms using synonym-generator agent
+  const agent2 = await synonymGeneratorAgent;
+  const synonymResult = await agent2.runner.ask(`Generate synonym search queries for: "${validation.sanitizedQuery}"`);
+  const synonymContent = typeof synonymResult === 'string' ? synonymResult : JSON.stringify(synonymResult);
+  
+  console.log('🔍 Generated synonyms response:', synonymContent);
+  
+  let synonyms: string[] = [];
+  try {
+    const jsonMatch = synonymContent.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const jsonData = JSON.parse(jsonMatch[0]);
+      for (const key in jsonData) {
+        if (jsonData.hasOwnProperty(key) && typeof jsonData[key] === 'string') {
+          const synonym = jsonData[key].trim();
+          if (synonym && synonym !== validation.sanitizedQuery) {
+            synonyms.push(synonym);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    synonyms = [`${validation.sanitizedQuery} analysis`, `${validation.sanitizedQuery} trends`, `${validation.sanitizedQuery} news`];
+  }
+
+  const synonymResponse = {
+    synonyms,
+    originalQuery: validation.sanitizedQuery
+  };
+  
   console.log(`📝 Generated ${synonymResponse.synonyms.length} search queries`);
   
-  const searchService = new SearchService();
+  // Search for content
   let searchResults: any;
-  
   const allQueries = [validation.sanitizedQuery, ...synonymResponse.synonyms];
   
   switch (searchEngine) {
     case 'exa':
-      searchResults = await searchService.searchExaOnly(allQueries);
+      searchResults = await searchTools.searchExaOnly(allQueries);
       break;
     case 'tavily':
-      searchResults = await searchService.searchTavilyOnly(allQueries);
+      searchResults = await searchTools.searchTavilyOnly(allQueries);
       break;
     case 'dual':
     default:
-      searchResults = await searchService.searchDualEngine(allQueries);
+      searchResults = await searchTools.searchDualEngine(allQueries);
       break;
   }
   
   console.log(`🔍 Found ${searchResults.urls.length} URLs from ${searchEngine} search`);
   
-  const webScraper = new WebScraper();
+  // Scrape content
   const scrapedContents: ScrapedContent[] = [];
   
   try {
-    const scrapedResults = await webScraper.scrapeMultiple(searchResults.urls.slice(0, 10));
-    
-    for (const result of scrapedResults) {
-      scrapedContents.push({
-        url: result.url,
-        title: result.title,
-        content: result.content,
-        timestamp: new Date(),
-        publishedDate: result.publishedDate ? new Date(result.publishedDate) : undefined,
-        publishedDateString: result.publishedDate || undefined
-      });
-    }
+    const scrapedResults = await scraperTools.scrapeMultiple(searchResults.urls.slice(0, 10));
+    scrapedContents.push(...scrapedResults);
   } catch (error) {
     console.error('Scraping failed:', error);
   }
   
-  const augmentedData = await marketDataService.fetchDetailedCoinData(detectedAssets);
+  // Get market data
+  const augmentedData = await marketDataTools.fetchDetailedCoinData(detectedAssets);
   
+  // Generate final analysis using analysis-generator agent
   const analysisPrompt = createAnalysisPrompt(scrapedContents, synonymResponse, augmentedData);
-  const finalAnalysis = await generateFinalAnalysis(analysisPrompt);
+  const agent3 = await analysisGeneratorAgent;
+  const analysisResult = await agent3.runner.ask(analysisPrompt);
+  const finalAnalysis = typeof analysisResult === 'string' ? analysisResult : JSON.stringify(analysisResult);
   
   timer.log();
   console.log('\n📊 FINAL ANALYSIS:\n');
   console.log(finalAnalysis);
   
-  await webScraper.cleanup();
+  await scraperTools.cleanup();
 }
 
 main().catch(console.error);
