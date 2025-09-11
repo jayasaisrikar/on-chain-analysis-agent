@@ -1,5 +1,4 @@
 import { AgentBuilder } from "@iqai/adk";
-import { openai } from "@ai-sdk/openai";
 import { config } from "../../config";
 
 /**
@@ -17,7 +16,7 @@ If the query is NOT crypto-related, return exactly: "Sorry, please ask about cry
 
   return await AgentBuilder
     .create("query_validator")
-    .withModel(openai(config.openai.model))
+    .withModel(config.openai.model)
     .withDescription("Sanitizes and validates user queries for crypto relevance")
     .withInstruction(sanitizePrompt)
     .build();

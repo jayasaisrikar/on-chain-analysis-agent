@@ -93,7 +93,7 @@ export class MarketDataTools {
    */
   async getCachedKnowledgeBase(): Promise<Array<{ id: string; symbol: string; name: string }>> {
     const CACHE_FILE = 'data/cache/knowledge_base_filtered.json';
-    const CACHE_TTL = 30 * 60 * 1000;
+    const CACHE_TTL = 6 * 30 * 60 * 1000;
     
     const fs = await import('fs/promises');
     

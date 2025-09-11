@@ -34,10 +34,10 @@ export class SynonymGenerationTool extends BaseTool {
     const timer = new PerformanceTimer('Synonym Generation Tool');
     
     try {
-      const { synonymGeneratorAgent } = await import('./agent');
-      const agent = await synonymGeneratorAgent;
+  const { synonymGeneratorAgent } = await import('./agent');
+  const agent = await synonymGeneratorAgent;
 
-      const result = await agent.runner.ask(`Generate synonym search queries for: "${args.originalQuery}"`);
+  const result = await agent.runner.ask(`Generate synonym search queries for: "${args.originalQuery}"`);
       const content = typeof result === 'string' ? result : JSON.stringify(result);
       
       console.log('🔍 Generated synonyms response:', content);

@@ -22,7 +22,7 @@ const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgent
  */
 export class ScraperTools {
   private browser?: Browser;
-  private timeout = 10000;
+  private timeout = 25000;
   private sessionService: InMemorySessionService | undefined;
   private session: Record<string, any> | undefined;
   private sessionStatePath = path.resolve(process.cwd(), 'data', 'cache', 'scraper_session.json');
@@ -42,6 +42,7 @@ export class ScraperTools {
       try {
         const result = await this.scrapeUrl(url);
         if (result) {
+          results.push(result);
           try {
             const now = new Date().toISOString();
             const scrapedEntry = {
@@ -53,16 +54,13 @@ export class ScraperTools {
             const newState = {
               lastScrapedAt: now,
               lastUrl: url,
-              // include a special key the writer knows to append into history
               scrapedEntry
             };
 
-            // Merge into in-memory session if present
             if (this.session && typeof this.session === 'object') {
               this.session = { ...this.session, lastScrapedAt: now, lastUrl: url };
             }
 
-            // Try to update remote ADK session if API exists
             if (this.sessionService && typeof (this.sessionService as any).updateSession === 'function' && this.session?.id) {
               try {
                 await (this.sessionService as any).updateSession(this.session.id, { lastScrapedAt: now, lastUrl: url });
@@ -73,7 +71,6 @@ export class ScraperTools {
               }
             }
 
-            // Persist to disk (this will append scrapedEntry into scrapedUrls array)
             await this.writeSessionState(newState);
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -93,10 +90,8 @@ export class ScraperTools {
 
   private async createSessionForScraper(appName: string, userId: string, initialState: Record<string, any> = {}): Promise<void> {
     try {
-      // Use the ADK InMemorySessionService strictly (static import)
       this.sessionService = new InMemorySessionService();
 
-      // Merge persisted disk state into initial state if present
       try {
         const persisted = await this.readSessionState();
         if (persisted) {
@@ -167,22 +162,27 @@ export class ScraperTools {
 
   private async tryAxiosMethod(url: string): Promise<ScrapedContent | null> {
     try {
-      const response = await axios.get(url, {
-        timeout: this.timeout,
-        headers: {
-          'User-Agent': getRandomUserAgent(),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate',
-          'DNT': '1',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1'
-        }
-      });
+      const headers = {
+        'User-Agent': getRandomUserAgent(),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Referer': url
+      } as any;
+
+      const response = await axios.get(url, { timeout: this.timeout, headers, responseType: 'text' });
+
+      if (response.status && response.status >= 400) {
+        console.warn(`Axios returned status ${response.status} for ${url}`);
+        return null;
+      }
 
       return this.extractContent(response.data, url);
     } catch (error) {
-      console.warn(`Axios method failed for ${url}: ${error}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`Axios method failed for ${url}: ${msg}`);
       return null;
     }
   }
@@ -192,29 +192,47 @@ export class ScraperTools {
       if (!this.browser) {
         this.browser = await chromium.launch({ 
           headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox']
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
       }
 
       const context = await this.browser.newContext({
-        userAgent: getRandomUserAgent()
+        userAgent: getRandomUserAgent(),
+        locale: 'en-US',
+        timezoneId: 'UTC',
+        viewport: { width: 1280, height: 800 },
+        bypassCSP: true,
+        javaScriptEnabled: true,
+        extraHTTPHeaders: {
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': url
+        }
       });
 
       const page = await context.newPage();
-      
-      await page.goto(url, { 
-        waitUntil: 'domcontentloaded',
-        timeout: this.timeout 
-      });
+      page.setDefaultNavigationTimeout(this.timeout);
 
-      await page.waitForTimeout(2000);
+      let attempts = 0;
+      let lastError: any = null;
+      while (attempts < 2) {
+        try {
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: this.timeout });
+          await page.waitForTimeout(1000 + attempts * 500);
+          const content = await page.content();
+          await context.close();
+          return this.extractContent(content, url);
+        } catch (err) {
+          lastError = err;
+          attempts += 1;
+          try { await page.reload({ waitUntil: 'domcontentloaded', timeout: this.timeout }); } catch (_) {}
+        }
+      }
 
-      const content = await page.content();
       await context.close();
-
-      return this.extractContent(content, url);
+      throw lastError || new Error('Playwright navigation failed');
     } catch (error) {
-      console.warn(`Playwright method failed for ${url}: ${error}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`Playwright method failed for ${url}: ${msg}`);
       return null;
     }
   }
@@ -230,7 +248,51 @@ export class ScraperTools {
       const article = reader.parse();
 
       if (!article) {
-        throw new Error('Readability failed to parse content');
+        // fallback heuristics when Readability fails
+        let title = $('title').text() || 'No title found';
+        let contentText = '';
+
+        const articleEl = $('article');
+        if (articleEl.length) {
+          contentText = articleEl.text();
+          title = articleEl.find('h1').first().text() || title;
+        }
+
+        if (!contentText || contentText.trim().length < 100) {
+          const mainEl = $('main');
+          if (mainEl.length) {
+            contentText = mainEl.text();
+            title = title || mainEl.find('h1').first().text();
+          }
+        }
+
+        if (!contentText || contentText.trim().length < 100) {
+          let largest = '';
+          $('body').find('div, section, p').each((i, el) => {
+            const txt = $(el).text() || '';
+            if (txt.length > largest.length) largest = txt;
+          });
+          contentText = largest;
+        }
+
+        if (!contentText || contentText.trim().length < 80) {
+          throw new Error('Readability failed and fallback extraction returned too little content');
+        }
+
+        const publishedDate = DateExtractor.extractPublicationDate(html, url);
+
+        return {
+          url,
+          title: (title || 'No title found').trim().substring(0, 200),
+          content: contentText.trim().substring(0, 3000),
+          cleanedContent: contentText.trim().substring(0, 3000),
+          publishedDate: publishedDate || undefined,
+          metadata: {
+            relevanceScore: 0.6,
+            wordCount: contentText.split(' ').length,
+            source: 'web_scraper_fallback'
+          }
+        };
       }
 
       const title = article.title || $('title').text() || 'No title found';

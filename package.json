@@ -26,7 +26,7 @@
     "@ai-sdk/google": "^1.2.22",
     "@ai-sdk/openai": "^1.3.23",
     "@google/generative-ai": "^0.24.1",
-    "@iqai/adk": "^0.1.19",
+    "@iqai/adk": "^0.3.2",
     "@mozilla/readability": "^0.6.0",
     "@qdrant/js-client-rest": "^1.15.0",
     "axios": "^1.11.0",

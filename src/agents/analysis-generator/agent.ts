@@ -1,5 +1,4 @@
 import { AgentBuilder } from "@iqai/adk";
-import { google } from "@ai-sdk/google";
 import { config } from "../../config";
 
 /**
@@ -30,7 +29,7 @@ Use clear markdown formatting and reference sources when making specific claims.
 
   return await AgentBuilder
     .create("crypto_analyst")
-    .withModel(google(config.google.model))
+    .withModel(config.google.model)
     .withDescription("Expert cryptocurrency analyst")
     .withInstruction(analysisSystemPrompt)
     .build();

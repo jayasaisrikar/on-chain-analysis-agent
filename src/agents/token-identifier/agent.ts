@@ -1,5 +1,4 @@
 import { AgentBuilder } from "@iqai/adk";
-import { openai } from "@ai-sdk/openai";
 import { config } from "../../config";
 
 /**
@@ -30,7 +29,7 @@ Examples:
 
   return await AgentBuilder
     .create("token_identifier")
-    .withModel(openai(config.openai.model))
+    .withModel(config.openai.model)
     .withDescription("Identifies cryptocurrency tokens from user queries using built-in crypto knowledge")
     .withInstruction(instruction)
     .build();

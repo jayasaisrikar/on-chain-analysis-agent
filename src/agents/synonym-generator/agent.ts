@@ -1,5 +1,4 @@
 import { AgentBuilder } from "@iqai/adk";
-import { openai } from "@ai-sdk/openai";
 import { config } from "../../config";
 import { getCurrentDateFormatted } from "../../utils/index";
 
@@ -115,10 +114,10 @@ Sorry, please ask about crypto-related insights.
 
   return await AgentBuilder
     .create("synonym_generator")
-    .withModel(openai(config.openai.model))
+    .withModel(config.openai.model)
     .withDescription("Creative cryptocurrency research query generator")
-    .withInstruction(systemPrompt)
-    .build();
+  .withInstruction(systemPrompt)
+  .build();
 }
 
 export const synonymGeneratorAgent = createSynonymGeneratorAgent();

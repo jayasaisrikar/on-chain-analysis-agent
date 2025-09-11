@@ -34,12 +34,12 @@ export class CryptoQueryValidationTool extends BaseTool {
     const timer = new PerformanceTimer('Query Validation Tool');
     
     try {
-      const { queryValidatorAgent } = await import('./agent');
-      const agent = await queryValidatorAgent;
+  const { queryValidatorAgent } = await import('./agent');
+  const agent = await queryValidatorAgent;
       
-      const result = await agent.runner.ask(args.query);
+  const result = await agent.runner.ask(args.query);
       const content = typeof result === 'string' ? result.trim() : JSON.stringify(result);
-      
+
       const isValid = !/^sorry, please ask about crypto-related insights\.?$/i.test(content);
       
       timer.end();
