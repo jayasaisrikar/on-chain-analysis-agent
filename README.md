@@ -1,105 +1,184 @@
+# On-Chain Analysis Agent
 
-<div align="center">
+A cryptocurrency analysis system built with IQAI ADK TypeScript framework following the recommended multi-agent project structure.
 
-<img src="https://files.catbox.moe/vumztw.png" alt="ADK TypeScript Logo" width="100" />
+## 🏗️ Project Structure
 
-<br/>
+This project follows the official IQAI ADK recommended structure:
 
+```
+on-chain-with-adk/
+├── .env                     # Environment variables (API keys)
+├── .gitignore              # Git ignore rules
+├── package.json            # Project dependencies
+├── tsconfig.json           # TypeScript configuration
+└── src/
+    ├── agents/
+    │   ├── research-agent/
+    │   │   ├── agent.ts     # Research agent implementation
+    │   │   └── tools.ts     # Research tools (Tavily search, scraping, etc.)
+    │   ├── analysis-agent/
+    │   │   ├── agent.ts     # Analysis agent implementation
+    │   │   └── tools.ts     # Analysis tools
+    │   └── coordinator/
+    │       └── agent.ts     # Coordinator agent
+    ├── shared/
+    │   └── tools/
+    │       └── customTool.ts # Shared tool interfaces
+    ├── env.ts              # Environment validation
+    └── main.ts             # Main application entry point
+```
 
+## 🚀 Getting Started
 
-# ADK Simple Agent Starter
+### Prerequisites
+- Node.js 18+
+- Google API Key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+- Tavily API Key (optional)
 
-**A starter template to build your own agent with the `@iqai/adk` library.**
+### Installation
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Copy `.env.example` to `.env` and configure your API keys
+4. Build the project:
+   ```bash
+   npm run build
+   ```
 
-_Minimal • Extensible • TypeScript_
+### Running the Application
 
----
-
-</div>
-
-This is the recommended starter template for building your own agent with the ADK TypeScript framework.
-
-## 🚀 Get Started
-
-
-The easiest way to create a new project using this template is with the ADK CLI:
-
+**Development Mode:**
 ```bash
-npm install -g @iqai/adk-cli # if you haven't already
-adk new --template simple-agent my-agent-project
-cd my-agent-project
-pnpm install
+npm run dev
 ```
 
-You can also use this template directly by copying the files, but using the CLI is recommended for best results.
-
-### Running the Agent
-
-**Default (Production/Development) Route**
-
-To run your agent in production or for standard development, use:
+**Production Mode:**
 ```bash
-pnpm dev
+npm run start
 ```
 
-**Fast Iteration & Agent Setup (ADK CLI)**
-
-For rapid prototyping, interactive testing, or initial agent setup, use the ADK CLI:
+**Interactive Testing with ADK CLI:**
 ```bash
-adk run   # Interactive CLI chat with your agents
-adk web   # Web interface for easy testing and demonstration
+npm install -g @iqai/adk-cli
+adk run   # CLI interface
+adk web   # Web interface
 ```
 
-## 📁 Folder Structure
-The main agent code lives in `index.ts` where the subagents live inside the `agents` folder. The `agents/agent.ts` file is compatible with the ADK CLI for easy testing.
+## 🤖 Agents
 
+### Research Agent
+- **Purpose**: Gathers cryptocurrency research data from web sources
+- **Tools**: Tavily search, web scraping, token detection
+- **Model**: Gemini 2.0 Flash (fast responses)
+
+### Analysis Agent
+- **Purpose**: Provides comprehensive cryptocurrency analysis
+- **Capabilities**: Technical analysis, fundamental analysis, market sentiment
+- **Model**: Gemini 2.5 Flash (advanced reasoning)
+
+### Coordinator Agent
+- **Purpose**: Orchestrates the research and analysis workflow
+- **Role**: Query processing, agent coordination, result synthesis
+- **Model**: Gemini 2.5 Flash
+
+## 🛠️ Tools
+
+### Research Tools
+- **Tavily Search**: Web search with rate limiting and error handling
+- **Universal Scraper**: Content extraction from multiple URLs
+- **Token Detector**: Cryptocurrency token identification
+- **Conduct Research**: Complete research workflow orchestration
+
+### Analysis Tools
+- **Analyze Data**: Data analysis and insight generation
+
+## 🔧 Configuration
+
+The project uses environment-based configuration:
+
+```typescript
+// src/env.ts
+export const env = envSchema.parse(process.env);
 ```
-├── src/
-│   ├── agents/
-│   │   ├── agent.ts          # Root agent (ADK CLI compatible)
-│   │   ├── joke-agent/       # Joke-telling sub-agent
-│   │   │   ├── agent.ts
-│   │   │   └── tools.ts
-│   │   └── weather-agent/    # Weather information sub-agent
-│   │       ├── agent.ts
-│   │       └── tools.ts
-│   ├── env.ts                # Environment variable validation
-│   └── index.ts              # Main execution entry point
-```
 
-## ⚙️ Environment Setup
-Make sure to configure your environment variables:
+Required environment variables:
+- `GOOGLE_API_KEY`: Google Gemini API key
+- `TAVILY_API_KEY`: Tavily search API key (optional)
+- `LLM_MODEL`: Default model (gemini-2.5-flash)
+- `QUERY_LLM_MODEL`: Fast model for queries (gemini-2.0-flash)
 
+## 🏃‍♂️ Development
+
+### Building
 ```bash
-cp .env.example .env
+npm run build
 ```
 
-## 🧰 Dev Tools
-This starter includes:
-- **GitHub Actions**: CI/CD pipeline
-- 📦 **PNPM**: Fast package manager
-- 🤖 **ADK CLI**: Interactive testing with `adk run` and `adk web`
+### Running in Development
+```bash
+npm run dev
+```
 
-## 🧪 Testing Your Agent
+### Clean Build
+```bash
+npm run clean
+npm run build
+```
 
-**Traditional Testing**: Run `pnpm dev` to execute the sample questions.
+## 📚 Documentation
 
-**Interactive Testing with ADK CLI**:
-1. Install: `npm install -g @iqai/adk-cli`
-2. Run: `adk run` for CLI chat or `adk web` for web interface
-3. Perfect for development, testing, and demonstrating your agent's capabilities
+- [IQAI ADK Documentation](https://adk.iqai.com)
+- [IQAI ADK GitHub](https://github.com/IQAIcom/adk-ts)
 
-## 🏗️ Building Your Agent
-1. **Create new agents** in the `src/agents/` directory
-2. **Add tools** to your agents in the `tools/` subdirectory
-3. **Configure services** in the `src/services/` directory
-4. **Update environment** variables in `src/env.ts`
+## 🎯 Features
 
-## 📚 Links
-- [ADK Documentation](https://adk.iqai.com)
-- [ADK GitHub Repository](https://github.com/IQAIcom/adk-ts)
+- ✅ Multi-agent architecture following IQAI ADK best practices
+- ✅ Cryptocurrency research and analysis capabilities
+- ✅ Web search and content scraping
+- ✅ Token detection and identification
+- ✅ Comprehensive error handling
+- ✅ Environment-based configuration
+- ✅ TypeScript type safety
+- ✅ Clean project structure
+- ✅ ADK CLI compatibility
 
-## 🆘 Support
-If you encounter any issues or have questions:
-- 📝 [Create an issue](https://github.com/IQAIcom/adk-ts/issues)
-- 💬 [Start a discussion](https://github.com/IQAIcom/adk-ts/discussions)
+## 🚀 Usage Example
+
+```typescript
+import { agent as researchAgent } from './agents/research-agent/agent';
+
+const research = await researchAgent();
+const result = await research.runner.ask("Analyze Bitcoin market trends");
+console.log(result);
+```
+
+## 🔍 Testing
+
+The project includes comprehensive logging and debugging capabilities. When running with `ADK_DEBUG=true`, you'll see detailed execution logs showing:
+
+- Agent initialization
+- Tool availability
+- LLM requests and responses
+- Function calls and tool usage
+- Execution flow and timing
+
+## 📊 Current Status
+
+✅ **Completed:**
+- Project restructured to follow IQAI ADK guidelines
+- All agents properly implemented using AgentBuilder pattern
+- Tools correctly integrated with createTool pattern
+- Environment configuration and validation
+- TypeScript compilation and build process
+- Application successfully runs and executes agents
+
+🔄 **Working:**
+- Research agent successfully calls tools
+- Analysis agent processes data
+- Full workflow coordination
+- Debug logging and monitoring
+
+The application is now properly structured according to IQAI ADK best practices and successfully running!

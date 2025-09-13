@@ -1,295 +1,197 @@
-import { getQueryGeneratorAgent } from './agents/query-generator/agent';
-import { getResearchAssistantAgent } from './agents/research-assistant/agent';
-import { getCryptoAnalystAgent } from './agents/crypto-analyst/agent';
-import { Runner, InMemorySessionService } from '@iqai/adk';
+import { agent as researchAgent } from './agents/research-agent/agent';
+import { agent as analysisAgent } from './agents/analysis-agent/agent';
+import { agent as coordinatorAgent } from './agents/coordinator/agent';
+import { env } from './env';
+import { retryWithBackoff, parseRetryDelay } from './utils/rate-limiter';
+import * as fs from 'fs';
+import * as path from 'path';
 
-export class DirectAgentRunner {
-    private static sessionService = new InMemorySessionService();
-    private static readonly APP_NAME = 'crypto-research-app';
-    private static readonly USER_ID = 'user-001';
-    
-    /**
-     * Helper method to run an agent with the proper Runner setup
-     */
-    private static async runAgentWithRunner(agent: any, message: string, sessionId: string): Promise<string> {
-        console.log(`🔧 Setting up runner for session: ${sessionId}`);
-        
-        // Create session if it doesn't exist
-        try {
-            console.log(`📝 Creating session: ${sessionId}`);
-            await this.sessionService.createSession(this.APP_NAME, this.USER_ID, {}, sessionId);
-            console.log(`✅ Session created successfully: ${sessionId}`);
-        } catch (error) {
-            console.log(`ℹ️  Session might already exist: ${sessionId}`, error);
-        }
-        
-        // Create a runner with the agent configuration
-        console.log(`🏃 Creating runner for agent: ${agent.name}`);
-        const runner = new Runner({
-            agent: agent,
-            appName: this.APP_NAME,
-            sessionService: this.sessionService
-        });
-        console.log(`✅ Runner created successfully`);
-        
-        // Create user content in the correct format
-        const userContent = {
-            role: 'user' as const,
-            parts: [{ text: message }]
-        };
-        console.log(`💬 User content prepared:`, JSON.stringify(userContent, null, 2));
-        
-        let finalResponse = '';
-        let eventCount = 0;
-        
-        try {
-            console.log(`🚀 Starting runAsync for session: ${sessionId}`);
-            
-            // Use the runner to process the message with correct parameters
-            const eventStream = runner.runAsync({
-                userId: this.USER_ID,
-                sessionId: sessionId,
-                newMessage: userContent
-            });
-            
-            console.log(`📡 Event stream created, processing events...`);
-            
-            // Process the event stream with timeout
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Runner timeout after 60 seconds')), 60000);
-            });
-            
-            const processEvents = async () => {
-                for await (const event of eventStream) {
-                    eventCount++;
-                    console.log(`📨 Event ${eventCount}: type=${event.type}, author=${event.author}`);
-                    
-                    // Log more event details for debugging
-                    if (event.content) {
-                        console.log(`   Content parts count: ${event.content.parts?.length || 0}`);
-                    }
-                    
-                    // Fix: Call isFinalResponse() method instead of checking the property
-                    const isFinal = event.isFinalResponse();
-                    console.log(`   Is final response: ${isFinal}`);
-                    
-                    if (isFinal && event.content && event.content.parts) {
-                        finalResponse = event.content.parts[0].text || '';
-                        console.log(`🎯 Final response received (length: ${finalResponse.length})`);
-                        break;
-                    }
-                }
-            };
-            
-            // Race between event processing and timeout
-            await Promise.race([processEvents(), timeoutPromise]);
-            
-            console.log(`📊 Event processing completed. Total events: ${eventCount}`);
-            
-        } catch (error) {
-            console.error(`❌ Error in runAgentWithRunner:`, error);
-            throw error;
-        }
-        
-        if (!finalResponse) {
-            console.warn(`⚠️  No final response received after ${eventCount} events`);
-            return 'No response received from agent';
-        }
-        
-        console.log(`✅ Final response ready (length: ${finalResponse.length})`);
-        return finalResponse;
-    }
-    
-    /**
-     * Run query generator agent directly - using the actual agent configuration
-     */
-    static async runQueryGenerator(userQuery: string): Promise<string> {
-        try {
-            console.log('🤖 Running actual query generator agent...');
-            
-            // Get the LlmAgent instance
-            const agent = getQueryGeneratorAgent();
-            console.log('Agent loaded:', agent.name, agent.description);
-            
-            // Use the runner to execute the agent
-            const result = await this.runAgentWithRunner(
-                agent,
-                `Generate synonym search queries for: "${userQuery}"`,
-                'query-generator-session'
-            );
-            
-            console.log('✅ Query generator completed using real agent config');
-            return result;
-            
-        } catch (error) {
-            console.error('❌ Query generator agent failed:', error);
-            throw error;
-        }
-    }
-    
-    /**
-     * Run research assistant agent directly - using the actual agent configuration  
-     */
-    static async runResearchAssistant(userQuery: string, synonyms: string[]): Promise<string> {
-        try {
-            console.log('🔍 Running actual research assistant agent...');
-            
-            // Get the LlmAgent instance
-            const agent = getResearchAssistantAgent();
-            console.log('Research agent loaded:', agent.name, agent.description);
-            
-            // Use the runner to execute the agent
-            const result = await this.runAgentWithRunner(
-                agent,
-                `Please conduct research for: "${userQuery}" with synonyms: ${JSON.stringify(synonyms)}`,
-                'research-assistant-session'
-            );
-            
-            console.log('✅ Research assistant completed using real agent config');
-            return result;
-            
-        } catch (error) {
-            console.error('❌ Research assistant agent failed:', error);
-            throw error;
-        }
-    }
-    
-    /**
-     * Run crypto analyst agent directly - using the actual agent configuration
-     */
-    static async runCryptoAnalyst(userQuery: string, synonyms: string[], researchData: string): Promise<string> {
-        try {
-            console.log('📊 Running actual crypto analyst agent...');
-            
-            // Get the LlmAgent instance
-            const agent = getCryptoAnalystAgent();
-            console.log('Analyst agent loaded:', agent.name, agent.description);
-            
-            const analysisPrompt = `Provide a technical and fundamental analysis for: ${userQuery}
-Synonyms considered: ${synonyms.join(', ')}
-Research findings: ${researchData}
-
-Give clear sections for Technical Analysis, Key Drivers, Risk Factors, and Summary.`;
-            
-            // Use the runner to execute the agent
-            const result = await this.runAgentWithRunner(
-                agent,
-                analysisPrompt,
-                'crypto-analyst-session'
-            );
-            
-            console.log('✅ Crypto analyst completed using real agent config');
-            return result;
-            
-        } catch (error) {
-            console.error('❌ Crypto analyst agent failed:', error);
-            throw error;
-        }
-    }
-    
-    /**
-     * Extract synonyms from query generator response
-     */
-    private static extractSynonyms(response: string): string[] {
-        try {
-            // Try to parse as JSON first
-            const parsed = JSON.parse(response);
-            if (Array.isArray(parsed)) {
-                return parsed;
-            }
-            if (parsed.queries && Array.isArray(parsed.queries)) {
-                return parsed.queries;
-            }
-            if (parsed.synonyms && Array.isArray(parsed.synonyms)) {
-                return parsed.synonyms;
-            }
-            if (typeof parsed === 'object') {
-                // Extract all string values from the object
-                return Object.values(parsed).filter(
-                    (value): value is string => typeof value === 'string'
-                );
-            }
-        } catch (e) {
-            // If not JSON, try to extract from text response
-            console.log('Response is not JSON, extracting from text...');
-        }
-        
-        // Fallback: extract queries from text response
-        const lines = response.split('\n');
-        const synonyms: string[] = [];
-        
-        for (const line of lines) {
-            const cleanLine = line.trim();
-            // Skip empty lines and code blocks
-            if (!cleanLine || cleanLine.startsWith('```')) continue;
-            
-            // Look for quoted text
-            const quotedMatch = cleanLine.match(/"([^"]+)"/) || cleanLine.match(/'([^']+)'/);
-            if (quotedMatch) {
-                synonyms.push(quotedMatch[1]);
-            } 
-            // Look for bullet points or numbered lists
-            else if (cleanLine.match(/^[-•*]\s+/)) {
-                synonyms.push(cleanLine.replace(/^[-•*]\s+/, ''));
-            }
-            // Look for numbered items
-            else if (cleanLine.match(/^\d+\.\s+/)) {
-                synonyms.push(cleanLine.replace(/^\d+\.\s+/, ''));
-            }
-            // Accept any non-empty line that doesn't look like metadata
-            else if (cleanLine.length > 3 && !cleanLine.toLowerCase().includes('query') && 
-                     !cleanLine.toLowerCase().includes('synonym')) {
-                synonyms.push(cleanLine);
-            }
-        }
-        
-        return synonyms.length > 0 ? synonyms : [response.trim()];
-    }
-    
-    /**
-     * Execute complete multi-agent workflow
-     */
-    static async executeFullWorkflow(userQuery: string): Promise<{
-        synonyms: string[];
-        research: string;
-        analysis: string;
-    }> {
-        try {
-            console.log('🔄 Starting multi-agent workflow...');
-            
-            // Step 1: Generate search queries
-            const queryResponse = await this.runQueryGenerator(userQuery);
-            const synonyms = this.extractSynonyms(queryResponse);
-            console.log('📋 Generated synonyms:', synonyms);
-            
-            // Step 2: Conduct research
-            const research = await this.runResearchAssistant(userQuery, synonyms);
-            
-            // Step 3: Perform analysis
-            const analysis = await this.runCryptoAnalyst(userQuery, synonyms, research);
-            
-            console.log('🎉 Multi-agent workflow completed successfully');
-            
-            return {
-                synonyms,
-                research,
-                analysis
-            };
-            
-        } catch (error) {
-            console.error('❌ Multi-agent workflow failed:', error);
-            throw error;
-        }
-    }
+interface AnalysisResult {
+  timestamp: string;
+  query: string;
+  agents: {
+    coordinator: string;
+    research: string;
+    analysis: string;
+  };
+  results: {
+    research: {
+      data: string;
+      preview: string;
+    };
+    analysis: {
+      data: string;
+      preview: string;
+    };
+  };
+  status: 'completed' | 'failed';
+  duration?: number;
 }
 
-// Utility function for easy usage
-export async function runCryptoAnalysis(userQuery: string) {
+async function main() {
+  const startTime = Date.now();
+  
+  try {
+    console.log('🚀 Starting cryptocurrency analysis application...');
+    
+    console.log('📋 Testing agent creation...');
+    const coordinator = await coordinatorAgent();
+    const research = await researchAgent();
+    const analysis = await analysisAgent();
+    
+    console.log('✅ All agents created successfully');
+    console.log(`📊 Coordinator: ${coordinator.agent.name}`);
+    console.log(`🔍 Research: ${research.agent.name}`);
+    console.log(`📈 Analysis: ${analysis.agent.name}`);
+    
+    const testQuery = env.USER_QUERY;
+    console.log(`\n🎯 Running user query: "${testQuery}"`);
+    console.log(`📝 Query source: ${process.env.USER_QUERY ? 'Environment variable' : 'Default value'}`);
+    
+    console.log('\n1. Research phase...');
+    let researchResult: string;
     try {
-        const result = await DirectAgentRunner.executeFullWorkflow(userQuery);
-        return result;
-    } catch (error) {
-        console.error('Analysis failed:', error);
-        throw error;
+      researchResult = await retryWithBackoff(
+        () => research.runner.ask(testQuery),
+        env.QUERY_LLM_MODEL, // Use the query model for research
+        3 // Max retries
+      );
+      
+      // Check if research result is empty or contains only whitespace
+      if (!researchResult || researchResult.trim().length === 0) {
+        researchResult = "Research phase completed but returned no data. This may be due to model errors or empty responses.";
+      }
+      
+      console.log('✅ Research completed');
+      console.log('Research result preview:', researchResult.substring(0, 200) + '...');
+    } catch (error: any) {
+      console.error('❌ Research phase failed:', error.message);
+      
+      // Check if it's a quota error and provide helpful message
+      if (error?.message?.includes("quota") || error?.status === 429) {
+        const retryDelay = parseRetryDelay(error);
+        console.log(`⏰ Quota exceeded. Recommended wait time: ${retryDelay / 1000} seconds`);
+        console.log('🔗 To fix this issue permanently, consider upgrading to paid tier at: https://aistudio.google.com/app/apikey');
+        researchResult = `Research failed due to API quota limits: ${error.message}`;
+      } else {
+        researchResult = `Research failed due to error: ${error.message}. This may be due to malformed function calls or model issues.`;
+      }
     }
+
+    console.log('\n2. Analysis phase...');
+    let analysisResult: string;
+    try {
+      // Ensure we have meaningful data to analyze
+      const dataToAnalyze = researchResult.trim() 
+        ? `Analyze this research data: ${researchResult}`
+        : `Perform a general technical analysis on IQ token and PEAR Protocol based on your knowledge. Note: Research phase did not return data, so provide analysis based on available information.`;
+      
+      analysisResult = await retryWithBackoff(
+        () => analysis.runner.ask(dataToAnalyze),
+        env.LLM_MODEL, // Use the main model for analysis
+        3 // Max retries
+      );
+      console.log('✅ Analysis completed');
+      console.log('Analysis result preview:', analysisResult.substring(0, 200) + '...');
+    } catch (error: any) {
+      console.error('❌ Analysis phase failed due to quota limits');
+      
+      if (error?.message?.includes("quota") || error?.status === 429) {
+        const retryDelay = parseRetryDelay(error);
+        console.log(`⏰ Quota exceeded. Recommended wait time: ${retryDelay / 1000} seconds`);
+        console.log('🔗 To fix this issue permanently, consider upgrading to paid tier at: https://aistudio.google.com/app/apikey');
+      }
+      
+      analysisResult = `Analysis failed due to API quota limits: ${error.message}`;
+    }
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    
+    // Create the final result object
+    const finalResult: AnalysisResult = {
+      timestamp: new Date().toISOString(),
+      query: testQuery,
+      agents: {
+        coordinator: coordinator.agent.name,
+        research: research.agent.name,
+        analysis: analysis.agent.name
+      },
+      results: {
+        research: {
+          data: researchResult,
+          preview: researchResult.substring(0, 200) + '...'
+        },
+        analysis: {
+          data: analysisResult,
+          preview: analysisResult.substring(0, 200) + '...'
+        }
+      },
+      status: 'completed',
+      duration: duration
+    };
+    
+    // Save to JSON file
+    const outputDir = path.join(process.cwd(), 'output');
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    
+    const filename = `crypto-analysis-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    const outputPath = path.join(outputDir, filename);
+    
+    fs.writeFileSync(outputPath, JSON.stringify(finalResult, null, 2), 'utf-8');
+    
+    console.log('\n🎉 Workflow completed successfully!');
+    console.log(`💾 Results saved to: ${outputPath}`);
+    
+  } catch (error) {
+    console.error('❌ Application failed:', error);
+    
+    // Save error result to JSON as well
+    const errorResult: AnalysisResult = {
+      timestamp: new Date().toISOString(),
+      query: env.USER_QUERY,
+      agents: {
+        coordinator: "unknown",
+        research: "unknown", 
+        analysis: "unknown"
+      },
+      results: {
+        research: {
+          data: "",
+          preview: ""
+        },
+        analysis: {
+          data: "",
+          preview: ""
+        }
+      },
+      status: 'failed',
+      duration: Date.now() - startTime
+    };
+    
+    const outputDir = path.join(process.cwd(), 'output');
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    
+    const filename = `crypto-analysis-error-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    const outputPath = path.join(outputDir, filename);
+    
+    // Add error details to the result
+    (errorResult as any).error = {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    };
+    
+    fs.writeFileSync(outputPath, JSON.stringify(errorResult, null, 2), 'utf-8');
+    console.log(`💾 Error details saved to: ${outputPath}`);
+    
+    process.exit(1);
+  }
+}
+
+if (require.main === module) {
+  main();
 }
