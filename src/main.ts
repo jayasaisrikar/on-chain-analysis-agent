@@ -57,7 +57,6 @@ async function main() {
         3 // Max retries
       );
       
-      // Check if research result is empty or contains only whitespace
       if (!researchResult || researchResult.trim().length === 0) {
         researchResult = "Research phase completed but returned no data. This may be due to model errors or empty responses.";
       }
@@ -66,8 +65,6 @@ async function main() {
       console.log('Research result preview:', researchResult.substring(0, 200) + '...');
     } catch (error: any) {
       console.error('❌ Research phase failed:', error.message);
-      
-      // Check if it's a quota error and provide helpful message
       if (error?.message?.includes("quota") || error?.status === 429) {
         const retryDelay = parseRetryDelay(error);
         console.log(`⏰ Quota exceeded. Recommended wait time: ${retryDelay / 1000} seconds`);
@@ -81,7 +78,6 @@ async function main() {
     console.log('\n2. Analysis phase...');
     let analysisResult: string;
     try {
-      // Ensure we have meaningful data to analyze
       const dataToAnalyze = researchResult.trim() 
         ? `Analyze this research data: ${researchResult}`
         : `Perform a general technical analysis on IQ token and PEAR Protocol based on your knowledge. Note: Research phase did not return data, so provide analysis based on available information.`;
@@ -108,7 +104,6 @@ async function main() {
     const endTime = Date.now();
     const duration = endTime - startTime;
     
-    // Create the final result object
     const finalResult: AnalysisResult = {
       timestamp: new Date().toISOString(),
       query: testQuery,
@@ -131,7 +126,6 @@ async function main() {
       duration: duration
     };
     
-    // Save to JSON file
     const outputDir = path.join(process.cwd(), 'output');
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
@@ -141,9 +135,35 @@ async function main() {
     const outputPath = path.join(outputDir, filename);
     
     fs.writeFileSync(outputPath, JSON.stringify(finalResult, null, 2), 'utf-8');
-    
+
+    // Also save a plain-text summary alongside the JSON
+    const textFilename = filename.replace(/\.json$/, '.txt');
+    const textOutputPath = path.join(outputDir, textFilename);
+
+    const textContent = [
+      `Timestamp: ${finalResult.timestamp}`,
+      `Query: ${finalResult.query}`,
+      `Agents: Coordinator=${finalResult.agents.coordinator}, Research=${finalResult.agents.research}, Analysis=${finalResult.agents.analysis}`,
+      `Status: ${finalResult.status}`,
+      `Duration(ms): ${finalResult.duration}`,
+      '',
+      '--- Research (preview) ---',
+      finalResult.results.research.preview,
+      '',
+      '--- Analysis (preview) ---',
+      finalResult.results.analysis.preview,
+      '',
+      '--- Full Research ---',
+      finalResult.results.research.data,
+      '',
+      '--- Full Analysis ---',
+      finalResult.results.analysis.data,
+    ].join('\n');
+
+    fs.writeFileSync(textOutputPath, textContent, 'utf-8');
     console.log('\n🎉 Workflow completed successfully!');
     console.log(`💾 Results saved to: ${outputPath}`);
+    console.log(`💾 Plain text summary saved to: ${textOutputPath}`);
     
   } catch (error) {
     console.error('❌ Application failed:', error);
@@ -178,8 +198,6 @@ async function main() {
     
     const filename = `crypto-analysis-error-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
     const outputPath = path.join(outputDir, filename);
-    
-    // Add error details to the result
     (errorResult as any).error = {
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined
@@ -187,7 +205,24 @@ async function main() {
     
     fs.writeFileSync(outputPath, JSON.stringify(errorResult, null, 2), 'utf-8');
     console.log(`💾 Error details saved to: ${outputPath}`);
-    
+
+    const errorMdFilename = filename.replace(/\.json$/, '.md');
+    const errorMdOutputPath = path.join(outputDir, errorMdFilename);
+
+    const errorMdContent = [
+      `Timestamp: ${errorResult.timestamp}`,
+      `Query: ${errorResult.query}`,
+      `Status: ${errorResult.status}`,
+      `Duration(ms): ${errorResult.duration}`,
+      '',
+      '--- Error ---',
+      `Message: ${(errorResult as any).error?.message ?? 'unknown'}`,
+      `Stack: ${(errorResult as any).error?.stack ?? 'none'}`,
+    ].join('\n');
+
+    fs.writeFileSync(errorMdOutputPath, errorMdContent, 'utf-8');
+    console.log(`💾 Error plain md saved to: ${errorMdOutputPath}`);
+
     process.exit(1);
   }
 }
