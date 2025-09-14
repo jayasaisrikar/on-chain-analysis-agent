@@ -1,6 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
 import { removeStopwords, eng } from 'stopword';
-import { env } from '../../env';
 
 interface MarketData {
   id: string;
@@ -92,36 +91,47 @@ export class MarketDataTools {
    * Get cached knowledge base or fetch fresh data
    */
   async getCachedKnowledgeBase(): Promise<Array<{ id: string; symbol: string; name: string }>> {
-    const CACHE_FILE = 'data/cache/knowledge_base_filtered.json';
+    const REL_CACHE_DIR = 'data/cache';
+    const CACHE_FILE_NAME = 'knowledge_base_filtered.json';
     const CACHE_TTL = 6 * 30 * 60 * 1000;
-    
+
+    const path = await import('path');
     const fs = await import('fs/promises');
-    
+
+    const cacheDir = path.join(process.cwd(), REL_CACHE_DIR);
+    const cacheFile = path.join(cacheDir, CACHE_FILE_NAME);
+
     try {
-      const stats = await fs.stat(CACHE_FILE);
+      // Ensure cache directory exists before attempting to stat/read
+      await fs.mkdir(cacheDir, { recursive: true });
+
+      const stats = await fs.stat(cacheFile);
       const isExpired = Date.now() - stats.mtime.getTime() > CACHE_TTL;
-      
+
       if (!isExpired) {
-        const cached = JSON.parse(await fs.readFile(CACHE_FILE, 'utf8'));
+        const cached = JSON.parse(await fs.readFile(cacheFile, 'utf8'));
         console.log(`✅ Using cached knowledge base (${cached.length} filtered coins) - Cache age: ${Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60))} minutes`);
         return cached;
       } else {
         console.log('🔄 Cache expired, fetching fresh data...');
       }
-    } catch (error) {
-      console.log('📦 No cache found, creating fresh knowledge base...');
+    } catch (error: any) {
+      if (error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+        console.log('📦 No cache found, creating fresh knowledge base...');
+      } else {
+        console.warn('⚠️ Error while accessing cache (will attempt to refresh):', error.message || error);
+      }
     }
-    
+
     const freshData = await this.setupFilteredKnowledgeBase();
-    
+
     try {
-      await fs.mkdir('data/cache', { recursive: true });
-      await fs.writeFile(CACHE_FILE, JSON.stringify(freshData, null, 2));
+      await fs.writeFile(cacheFile, JSON.stringify(freshData, null, 2));
       console.log('💾 Filtered knowledge base cached for future runs');
     } catch (error: any) {
-      console.warn('⚠️ Could not cache knowledge base:', error.message);
+      console.warn('⚠️ Could not cache knowledge base:', error.message || error);
     }
-    
+
     return freshData;
   }
 
