@@ -54,7 +54,7 @@ async function main() {
       researchResult = await retryWithBackoff(
         () => research.runner.ask(testQuery),
         env.QUERY_LLM_MODEL, // Use the query model for research
-        3 // Max retries
+        env.MAX_RETRIES
       );
       
       if (!researchResult || researchResult.trim().length === 0) {
@@ -85,20 +85,23 @@ async function main() {
       analysisResult = await retryWithBackoff(
         () => analysis.runner.ask(dataToAnalyze),
         env.LLM_MODEL, // Use the main model for analysis
-        3 // Max retries
+        env.MAX_RETRIES
       );
       console.log('✅ Analysis completed');
       console.log('Analysis result preview:', analysisResult.substring(0, 200) + '...');
     } catch (error: any) {
-      console.error('❌ Analysis phase failed due to quota limits');
-      
+      console.error('❌ Analysis phase failed. Error:', error?.message ?? error);
+      if (error?.status === 503 || String(error?.message || '').toLowerCase().includes('unavailable') || String(error?.message || '').toLowerCase().includes('overload')) {
+        console.log('⚠️ Detected service unavailable / overloaded model (503). Consider retrying later or using a smaller/less-busy model.');
+      }
+
       if (error?.message?.includes("quota") || error?.status === 429) {
         const retryDelay = parseRetryDelay(error);
         console.log(`⏰ Quota exceeded. Recommended wait time: ${retryDelay / 1000} seconds`);
         console.log('🔗 To fix this issue permanently, consider upgrading to paid tier at: https://aistudio.google.com/app/apikey');
       }
-      
-      analysisResult = `Analysis failed due to API quota limits: ${error.message}`;
+
+      analysisResult = `Analysis failed due to API error: ${error?.message ?? JSON.stringify(error)}`;
     }
     
     const endTime = Date.now();

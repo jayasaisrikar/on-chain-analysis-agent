@@ -119,36 +119,42 @@ export async function retryWithBackoff<T>(
   maxRetries: number = 3
 ): Promise<T> {
   const config = FREE_TIER_LIMITS[model] || { retryDelayMs: 60_000, maxRetries: 3 };
-  
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       // Wait for rate limit before making request
       await rateLimiter.waitForNextRequest(model);
-      
+
       // Record the request
       rateLimiter.recordRequest(model);
-      
+
       // Make the request
       const result = await fn();
       return result;
     } catch (error: any) {
-      const isQuotaError = error?.message?.includes("quota") || 
-                          error?.message?.includes("429") ||
-                          error?.status === 429;
-      
-      if (isQuotaError && attempt < maxRetries) {
-        const delay = config.retryDelayMs * Math.pow(2, attempt - 1); // Exponential backoff
-        console.log(`🚨 Quota exceeded (attempt ${attempt}/${maxRetries}). Retrying in ${delay / 1000}s...`);
+      // Determine if the error is transient (retryable)
+      const msg = String(error?.message || error?.error?.message || "").toLowerCase();
+      const isQuotaError = msg.includes("quota") || msg.includes("429") || error?.status === 429;
+      const isUnavailable = msg.includes("overload") || msg.includes("overloaded") || error?.status === 503 || error?.error?.code === 503 || error?.error?.status === 'UNAVAILABLE';
+      const isServerError = (error?.status && error.status >= 500 && error.status < 600) || isUnavailable;
+
+      const shouldRetry = (isQuotaError || isServerError) && attempt < maxRetries;
+
+      if (shouldRetry) {
+        const baseDelay = config.retryDelayMs || 60_000;
+        const exponential = baseDelay * Math.pow(2, attempt - 1);
+        const jitter = Math.floor(Math.random() * Math.min(1000, exponential));
+        const delay = exponential + jitter;
+
+        const reason = isQuotaError ? 'quota/429' : isUnavailable ? 'service-unavailable/503' : 'server-error';
+        console.log(`🚨 Transient error (${reason}) on attempt ${attempt}/${maxRetries}. Retrying in ${Math.round(delay/1000)}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
-      
-      // If it's not a quota error or we've exhausted retries, throw the error
       throw error;
     }
   }
-  
-  throw new Error(`Failed after ${maxRetries} attempts due to rate limits`);
+
+  throw new Error(`Failed after ${maxRetries} attempts due to transient errors`);
 }
 
 /**
