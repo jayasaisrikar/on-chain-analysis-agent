@@ -227,6 +227,87 @@ export class MarketDataTools {
     }
   }
 
+  private sma(values: number[], period: number): number | null {
+    if (!values || values.length < period) return null;
+    const slice = values.slice(values.length - period);
+    const sum = slice.reduce((s, v) => s + v, 0);
+    return sum / period;
+  }
+
+  private emaSeries(values: number[], period: number): number[] {
+    const out: number[] = [];
+    const k = 2 / (period + 1);
+    if (values.length < period) return out;
+    let emaPrev = values.slice(0, period).reduce((s, v) => s + v, 0) / period;
+    out.push(emaPrev);
+    for (let i = period; i < values.length; i++) {
+      emaPrev = values[i] * k + emaPrev * (1 - k);
+      out.push(emaPrev);
+    }
+    return out;
+  }
+
+  private computeRSI(values: number[], period = 14): number | null {
+    if (!values || values.length < period + 1) return null;
+    let gains = 0;
+    let losses = 0;
+    for (let i = values.length - period - 1; i < values.length - 1; i++) {
+      const change = values[i + 1] - values[i];
+      if (change > 0) gains += change;
+      else losses += Math.abs(change);
+    }
+    const avgGain = gains / period;
+    const avgLoss = losses / period;
+    if (avgLoss === 0) return 100;
+    const rs = avgGain / avgLoss;
+    return 100 - 100 / (1 + rs);
+  }
+
+  private computeMACD(values: number[], fast = 12, slow = 26, signal = 9) {
+    if (!values || values.length < slow) return null;
+    const emaFastSeries = this.emaSeries(values, fast);
+    const emaSlowSeries = this.emaSeries(values, slow);
+    const macdSeries: number[] = [];
+    const offset = slow - fast; // could be negative
+    for (let i = 0; i < emaSlowSeries.length; i++) {
+      const fastIdx = i + offset;
+      if (fastIdx >= 0 && fastIdx < emaFastSeries.length) {
+        macdSeries.push(emaFastSeries[fastIdx] - emaSlowSeries[i]);
+      }
+    }
+    if (macdSeries.length < signal) return null;
+    const signalSeries = this.emaSeries(macdSeries, signal);
+    const macd = macdSeries[macdSeries.length - 1];
+    const signalLine = signalSeries[signalSeries.length - 1];
+    return { macd, signal: signalLine, hist: macd - signalLine };
+  }
+
+  /**
+   * Fetch recent market chart (daily) and compute common indicators (RSI14, MA20/50/200, MACD)
+   */
+  async fetchMarketChartAndIndicators(coinId: string, days = 90) {
+    try {
+      const resp = await this.coinGeckoClient.get(`/coins/${coinId}/market_chart`, {
+        params: { vs_currency: 'usd', days, interval: 'daily' }
+      });
+      const prices: number[] = (resp.data?.prices || []).map((p: any[]) => p[1]);
+      const indicators: any = {
+        sample_count: prices.length,
+        latest_price: prices.length ? prices[prices.length - 1] : null,
+        rsi_14: this.computeRSI(prices, 14),
+        ma_20: this.sma(prices, 20),
+        ma_50: this.sma(prices, 50),
+        ma_200: this.sma(prices, 200),
+        macd: this.computeMACD(prices, 12, 26, 9)
+      };
+      return { success: true, indicators, timestamp: new Date().toISOString() };
+    } catch (err) {
+      const error: any = err;
+      console.warn(`Failed to fetch chart/indicators for ${coinId}:`, error?.message || error);
+      return { success: false, error: error?.message || 'Failed to fetch chart' };
+    }
+  }
+
   /**
    * Get cryptocurrency token suggestions based on partial query matches
    */

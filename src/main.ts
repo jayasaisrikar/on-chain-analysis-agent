@@ -1,6 +1,7 @@
 import { agent as researchAgent } from './agents/research-agent/agent';
 import { agent as analysisAgent } from './agents/analysis-agent/agent';
 import { agent as coordinatorAgent } from './agents/coordinator/agent';
+import { coinGeckoMarketData } from './agents/research-agent/tools';
 import { env } from './env';
 import { retryWithBackoff, parseRetryDelay } from './utils/rate-limiter';
 import * as fs from 'fs';
@@ -77,10 +78,39 @@ async function main() {
 
     console.log('\n2. Analysis phase...');
     let analysisResult: string;
+    // marketSummary is declared here so it's available when building finalResult
+    let marketSummary = '';
     try {
-      const dataToAnalyze = researchResult.trim() 
-        ? `Analyze this research data: ${researchResult}`
-        : `Perform a general technical analysis on IQ token and PEAR Protocol based on your knowledge. Note: Research phase did not return data, so provide analysis based on available information.`;
+      // Fetch structured market data (including indicators) for tokens mentioned in query
+      try {
+        console.log('🔎 Fetching CoinGecko market data (including indicators) for tokens...');
+        // Call the coingecko market data tool directly (avoid relying on runner internals)
+        const marketResp = await (coinGeckoMarketData as any).fn({ tokens: ['IQ', 'PEAR'] });
+        if (marketResp && marketResp.success && marketResp.market_data) {
+          for (const [id, coinRaw] of Object.entries(marketResp.market_data as any)) {
+            const coin: any = coinRaw as any;
+            const ind = coin.indicators;
+            marketSummary += `\n- ${coin.name} (${String(coin.symbol || '').toUpperCase()}): price=${coin.current_price} USD`;
+            if (ind) {
+              marketSummary += `, RSI14=${ind.rsi_14?.toFixed ? ind.rsi_14.toFixed(2) : ind.rsi_14}`;
+              marketSummary += `, MA20=${ind.ma_20?.toFixed ? ind.ma_20.toFixed(6) : ind.ma_20}`;
+              marketSummary += `, MA50=${ind.ma_50?.toFixed ? ind.ma_50.toFixed(6) : ind.ma_50}`;
+              marketSummary += `, MACD_hist=${ind.macd?.hist?.toFixed ? ind.macd.hist.toFixed(8) : ind.macd?.hist}`;
+            } else if ((coin as any).indicators_error) {
+              marketSummary += `, indicators_error=${(coin as any).indicators_error}`;
+            }
+            marketSummary += '\n';
+          }
+        } else {
+          console.warn('coingecko_market_data tool did not return indicators; continuing without detailed indicators');
+        }
+      } catch (err: any) {
+        console.warn('Failed to fetch market indicators via tool:', err?.message ?? err);
+      }
+
+      const dataToAnalyze = researchResult.trim()
+        ? `Analyze this research data: ${researchResult}\n\nMarket Indicators Snapshot:${marketSummary}`
+        : `Perform a general technical analysis on IQ token and PEAR Protocol based on your knowledge. Note: Research phase did not return data, so provide analysis based on available information.\n\nMarket Indicators Snapshot:${marketSummary}`;
       
       analysisResult = await retryWithBackoff(
         () => analysis.runner.ask(dataToAnalyze),
@@ -125,6 +155,7 @@ async function main() {
           preview: analysisResult.substring(0, 200) + '...'
         }
       },
+      ...( { market_snapshot: marketSummary } as any ),
       status: 'completed',
       duration: duration
     };

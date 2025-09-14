@@ -319,7 +319,26 @@ export const coinGeckoMarketData = createTool({
           last_updated: coin.last_updated
         };
       });
-      
+      // Attach basic indicators (RSI, MA, MACD) by fetching market chart data in parallel
+      const indicatorPromises = Object.keys(marketData).map(async (coinId) => {
+        const ind = await marketDataTools.fetchMarketChartAndIndicators(coinId, 90);
+        return { coinId, ind };
+      });
+
+      const indicatorResults = await Promise.allSettled(indicatorPromises);
+      for (const res of indicatorResults) {
+        if (res.status === 'fulfilled') {
+          const { coinId, ind } = res.value;
+          if (ind && ind.success) {
+            marketData[coinId].indicators = ind.indicators;
+            marketData[coinId].indicators_timestamp = ind.timestamp;
+          } else {
+            marketData[coinId].indicators = null;
+            marketData[coinId].indicators_error = ind?.error || 'unknown';
+          }
+        }
+      }
+
       return {
         success: true,
         tokens_found: response.data.length,
