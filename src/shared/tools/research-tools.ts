@@ -19,33 +19,35 @@ interface DetectedAsset {
   symbol: string;
 }
 
-/**
- * Market data tools for cryptocurrency information and token identification
- */
 export class MarketDataTools {
   private coinGeckoClient: AxiosInstance;
   private knowledgeBase: Array<{ id: string; symbol: string; name: string }> = [];
 
   constructor() {
-    this.coinGeckoClient = axios.create({
-      baseURL: 'https://pro-api.coingecko.com/api/v3',
-      headers: { 'x-cg-pro-api-key': process.env.COINGECKO_API_KEY }
-    });
+    const hasProKey = process.env.COINGECKO_API_KEY && process.env.COINGECKO_API_KEY.startsWith('CG-');
+    
+    if (hasProKey) {
+      this.coinGeckoClient = axios.create({
+        baseURL: 'https://pro-api.coingecko.com/api/v3',
+        headers: { 'x-cg-pro-api-key': process.env.COINGECKO_API_KEY },
+        timeout: 10000
+      });
+    } else {
+      this.coinGeckoClient = axios.create({
+        baseURL: 'https://api.coingecko.com/api/v3',
+        timeout: 10000,
+        ...(process.env.COINGECKO_API_KEY && {
+          headers: { 'x-cg-demo-api-key': process.env.COINGECKO_API_KEY }
+        })
+      });
+    }
   }
 
-  /**
-   * Fetch filtered market data from CoinGecko API
-   */
   private async fetchFilteredMarketData({
     perPage = 250,
     minMarketCap = 1_000_000,
     minVolume = 10_000,
     delayMs = 120
-  }: {
-    perPage?: number;
-    minMarketCap?: number;
-    minVolume?: number;
-    delayMs?: number;
   } = {}): Promise<MarketData[]> {
     const results: MarketData[] = [];
     let page = 1;
@@ -55,21 +57,12 @@ export class MarketDataTools {
 
       try {
         const resp = await this.coinGeckoClient.get('/coins/markets', {
-          params: {
-            vs_currency: 'usd',
-            order: 'market_cap_desc',
-            per_page: perPage,
-            page
-          }
+          params: { vs_currency: 'usd', order: 'market_cap_desc', per_page: perPage, page }
         });
         const data: MarketData[] = resp.data;
         if (!Array.isArray(data) || data.length === 0) break;
 
-        const filtered = data.filter(
-          c =>
-            c.market_cap >= minMarketCap &&
-            c.total_volume >= minVolume
-        );
+        const filtered = data.filter(c => c.market_cap >= minMarketCap && c.total_volume >= minVolume);
         results.push(...filtered);
 
         if (data.length < perPage) break;
@@ -87,9 +80,6 @@ export class MarketDataTools {
     return results;
   }
 
-  /**
-   * Get cached knowledge base or fetch fresh data
-   */
   async getCachedKnowledgeBase(): Promise<Array<{ id: string; symbol: string; name: string }>> {
     const REL_CACHE_DIR = 'data/cache';
     const CACHE_FILE_NAME = 'knowledge_base_filtered.json';
@@ -102,9 +92,7 @@ export class MarketDataTools {
     const cacheFile = path.join(cacheDir, CACHE_FILE_NAME);
 
     try {
-      // Ensure cache directory exists before attempting to stat/read
       await fs.mkdir(cacheDir, { recursive: true });
-
       const stats = await fs.stat(cacheFile);
       const isExpired = Date.now() - stats.mtime.getTime() > CACHE_TTL;
 
@@ -135,9 +123,6 @@ export class MarketDataTools {
     return freshData;
   }
 
-  /**
-   * Setup filtered knowledge base from CoinGecko
-   */
   private async setupFilteredKnowledgeBase(): Promise<Array<{ id: string; symbol: string; name: string }>> {
     try {
       console.log("Setting up filtered knowledge base: fetching high-quality CoinGecko assets...");
@@ -154,13 +139,11 @@ export class MarketDataTools {
 
       console.log(`✅ Retrieved ${filteredMarketData.length} high-quality coins (market cap >= $1M and volume >= $10K)`);
 
-      const filteredCoins = filteredMarketData.map(coin => ({
+      return filteredMarketData.map(coin => ({
         id: coin.id,
         symbol: coin.symbol,
         name: coin.name
       }));
-
-      return filteredCoins;
     } catch (error) {
       console.error("❌ Fatal Error: Could not fetch CoinGecko asset list. The application cannot continue.");
       process.exit(1);
@@ -177,14 +160,9 @@ export class MarketDataTools {
     }
   }
 
-  /**
-   * Parse token identification response from agent
-   */
   parseTokenIdentificationResponse(response: string): DetectedAsset[] | { error: string; suggestions?: DetectedAsset[] } {
     if (response.toLowerCase().includes('no tokens found')) {
-      return { 
-        error: 'No recognized cryptocurrency tokens found in your query.'
-      };
+      return { error: 'No recognized cryptocurrency tokens found in your query.' };
     }
 
     try {
@@ -230,8 +208,7 @@ export class MarketDataTools {
   private sma(values: number[], period: number): number | null {
     if (!values || values.length < period) return null;
     const slice = values.slice(values.length - period);
-    const sum = slice.reduce((s, v) => s + v, 0);
-    return sum / period;
+    return slice.reduce((s, v) => s + v, 0) / period;
   }
 
   private emaSeries(values: number[], period: number): number[] {
@@ -268,7 +245,7 @@ export class MarketDataTools {
     const emaFastSeries = this.emaSeries(values, fast);
     const emaSlowSeries = this.emaSeries(values, slow);
     const macdSeries: number[] = [];
-    const offset = slow - fast; // could be negative
+    const offset = slow - fast;
     for (let i = 0; i < emaSlowSeries.length; i++) {
       const fastIdx = i + offset;
       if (fastIdx >= 0 && fastIdx < emaFastSeries.length) {
@@ -282,16 +259,13 @@ export class MarketDataTools {
     return { macd, signal: signalLine, hist: macd - signalLine };
   }
 
-  /**
-   * Fetch recent market chart (daily) and compute common indicators (RSI14, MA20/50/200, MACD)
-   */
   async fetchMarketChartAndIndicators(coinId: string, days = 90) {
     try {
       const resp = await this.coinGeckoClient.get(`/coins/${coinId}/market_chart`, {
         params: { vs_currency: 'usd', days, interval: 'daily' }
       });
       const prices: number[] = (resp.data?.prices || []).map((p: any[]) => p[1]);
-      const indicators: any = {
+      const indicators = {
         sample_count: prices.length,
         latest_price: prices.length ? prices[prices.length - 1] : null,
         rsi_14: this.computeRSI(prices, 14),
@@ -301,16 +275,43 @@ export class MarketDataTools {
         macd: this.computeMACD(prices, 12, 26, 9)
       };
       return { success: true, indicators, timestamp: new Date().toISOString() };
-    } catch (err) {
-      const error: any = err;
-      console.warn(`Failed to fetch chart/indicators for ${coinId}:`, error?.message || error);
-      return { success: false, error: error?.message || 'Failed to fetch chart' };
+    } catch (err: any) {
+      console.warn(`Failed to fetch chart/indicators for ${coinId}:`, err?.response?.status || err?.message || err);
+      
+      if (err?.response?.status === 401) {
+        try {
+          console.log(`🔄 Trying free API for ${coinId} chart data...`);
+          const freeClient = axios.create({
+            baseURL: 'https://api.coingecko.com/api/v3',
+            timeout: 10000
+          });
+          
+          const resp = await freeClient.get(`/coins/${coinId}/market_chart`, {
+            params: { vs_currency: 'usd', days, interval: 'daily' }
+          });
+          
+          const prices: number[] = (resp.data?.prices || []).map((p: any[]) => p[1]);
+          const indicators = {
+            sample_count: prices.length,
+            latest_price: prices.length ? prices[prices.length - 1] : null,
+            rsi_14: this.computeRSI(prices, 14),
+            ma_20: this.sma(prices, 20),
+            ma_50: this.sma(prices, 50),
+            ma_200: this.sma(prices, 200),
+            macd: this.computeMACD(prices, 12, 26, 9)
+          };
+          console.log(`✅ Free API successful for ${coinId}`);
+          return { success: true, indicators, timestamp: new Date().toISOString() };
+        } catch (fallbackErr: any) {
+          console.warn(`Free API also failed for ${coinId}:`, fallbackErr?.message || fallbackErr);
+          return { success: false, error: `Both pro and free APIs failed: ${fallbackErr?.message || 'Unknown error'}` };
+        }
+      }
+      
+      return { success: false, error: err?.message || 'Failed to fetch chart' };
     }
   }
 
-  /**
-   * Get cryptocurrency token suggestions based on partial query matches
-   */
   async getSuggestions(query: string): Promise<DetectedAsset[]> {
     const knowledgeBase = this.knowledgeBase.length > 0 ? this.knowledgeBase : await this.getCachedKnowledgeBase();
     const queryWords = removeStopwords(query.toLowerCase().split(/\s+/), eng);

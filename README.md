@@ -69,20 +69,32 @@ adk web   # Web interface
 
 ## 🤖 Agents
 
-### Research Agent
-- **Purpose**: Gathers cryptocurrency research data from web sources
-- **Tools**: Tavily search, web scraping, token detection
-- **Model**: Gemini 2.0 Flash (fast responses)
+### Token Market Agent (New)
+- **Purpose**: Detects tokens & fetches real-time market data (CoinGecko)
+- **Tools**: `token_detector`, `coingecko_market_data`
+- **Output**: Structured JSON (tokens + market summary) stored in session state
+
+### Web Research Agent (New)
+- **Purpose**: Targeted web search & scraping for analysis context
+- **Tools**: `tavily_search`, `universal_scraper`, `conduct_research`
+- **Output**: Search queries used, synthesized findings, sources, excerpts → stored in session state
 
 ### Analysis Agent
-- **Purpose**: Provides comprehensive cryptocurrency analysis
-- **Capabilities**: Technical analysis, fundamental analysis, market sentiment
-- **Model**: Gemini 2.5 Flash (advanced reasoning)
+- **Purpose**: Converts aggregated market + research context into actionable analysis
+- **Tools**: `analyze_data`
+- **Reads**: `market_data_summary`, `web_top_findings`, `web_scraped_excerpt` from session state
 
 ### Coordinator Agent
-- **Purpose**: Orchestrates the research and analysis workflow
-- **Role**: Query processing, agent coordination, result synthesis
-- **Model**: Gemini 2.5 Flash
+- **Purpose**: Still available for orchestration / future extensions
+- **Note**: Main flow now handled by a Sequential pipeline
+
+### Sequential Pipeline (New)
+Implemented via `SequentialAgent` combining:
+1. Token Market Agent → writes: `detected_tokens`, `market_data_summary`
+2. Web Research Agent → writes: `web_top_findings`, `web_scraped_excerpt`, `web_sources`
+3. Analysis Agent → writes: `analysis_summary`
+
+All steps share the same session state for deterministic hand-off.
 
 ## 🛠️ Tools
 
@@ -94,6 +106,50 @@ adk web   # Web interface
 
 ### Analysis Tools
 - **Analyze Data**: Data analysis and insight generation
+
+## 🔁 Sequential Workflow & State
+
+The new workflow uses `SequentialAgent` (see `src/agents/workflow/pipeline.ts`) to run agents in a fixed order. A single `InMemorySessionService` session is created in `main.ts` and state updates are applied through `EventActions.stateDelta` ensuring auditability.
+
+State Keys Used:
+```
+original_query
+current_step
+detected_tokens
+market_data_summary
+token_market_raw
+web_search_queries
+web_top_findings
+web_sources
+web_scraped_excerpt
+web_research_raw
+analysis_summary
+```
+All keys are session-scoped (no prefix) for simplicity; can be migrated later to `user:` / `app:` scopes if persistence evolves.
+
+## � Model Fallback Handling
+
+Quota (429 / RESOURCE_EXHAUSTED) and overload (503 / UNAVAILABLE) errors from Gemini are mitigated by a lightweight fallback system:
+
+1. Specify optional env var `FALLBACK_MODELS` as a comma-separated list (e.g.:
+```
+FALLBACK_MODELS=gemini-1.5-flash,gemini-2.0-flash
+```
+2. On agent build and each LLM call the system cycles through: `[primary, QUERY_LLM_MODEL, LLM_MODEL, ...FALLBACK_MODELS]` (deduped).
+3. Transient errors trigger trying the next model; non-transient errors abort immediately.
+4. Token/market step performs an extra empty-output retry cycle if initial JSON lacks tokens & summary.
+
+This keeps the pipeline resilient without adding heavy external rate control. For higher reliability integrate a persistent session service and queue.
+
+## �🧪 Extending the Pipeline
+To add another step (e.g., Risk Scoring Agent):
+1. Create new agent with `AgentBuilder`
+2. Export its factory in a new file under `src/agents/<new-agent>/agent.ts`
+3. Import and insert into `subAgents` array in `pipeline.ts`
+4. Write any outputs to session state via event append helper in `main.ts`
+
+## ⚠️ Error Handling Notes
+If an upstream step fails (e.g., quota / 503), state records `*_error` and downstream steps degrade gracefully using whatever context exists.
 
 ## 🔧 Configuration
 
@@ -148,11 +204,9 @@ npm run build
 ## 🚀 Usage Example
 
 ```typescript
-import { agent as researchAgent } from './agents/research-agent/agent';
-
-const research = await researchAgent();
-const result = await research.runner.ask("Analyze Bitcoin market trends");
-console.log(result);
+import { buildPipeline } from './agents/workflow/pipeline';
+const { pipeline } = await buildPipeline();
+// You can still run individual sub-agents, but pipeline orchestrates order deterministically.
 ```
 
 ## 🔍 Testing

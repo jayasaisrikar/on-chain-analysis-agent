@@ -1,9 +1,8 @@
-import { agent as researchAgent } from './agents/research-agent/agent';
-import { agent as analysisAgent } from './agents/analysis-agent/agent';
-import { agent as coordinatorAgent } from './agents/coordinator/agent';
-import { coinGeckoMarketData } from './agents/research-agent/tools';
+import { buildPipeline } from './agents/agent';
+import { InMemorySessionService, Event, EventActions } from '@iqai/adk';
 import { env } from './env';
 import { retryWithBackoff, parseRetryDelay } from './utils/rate-limiter';
+import { validateAnalysisWorkflow, extractTokensFromQuery } from './utils/agent-validation';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -11,9 +10,9 @@ interface AnalysisResult {
   timestamp: string;
   query: string;
   agents: {
-    coordinator: string;
     research: string;
     analysis: string;
+    pipeline: string;
   };
   results: {
     research: {
@@ -25,7 +24,14 @@ interface AnalysisResult {
       preview: string;
     };
   };
-  status: 'completed' | 'failed';
+  validation?: {
+    score: number;
+    isValid: boolean;
+    errors: string[];
+    warnings: string[];
+    extractedTokens: string[];
+  };
+  status: 'completed' | 'failed' | 'completed-with-issues';
   duration?: number;
 }
 
@@ -33,59 +39,204 @@ async function main() {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Starting cryptocurrency analysis application...');
+  console.log('Starting cryptocurrency analysis application...');
+    const fallbackModels = [env.QUERY_LLM_MODEL, env.LLM_MODEL]
+      .concat((env.FALLBACK_MODELS || '').split(',').map(s => s.trim()).filter(Boolean))
+      .filter((m, idx, arr) => arr.indexOf(m) === idx);
+
+  const buildWithFallback = async <T extends { agent: any; runner: any }>(builder: (model?: string) => Promise<T>, preferred: string) => {
+      const tried: string[] = [];
+      for (const model of [preferred, ...fallbackModels]) {
+        if (tried.includes(model)) continue;
+        tried.push(model);
+        try {
+          const instance = await builder(model);
+          return { instance, modelUsed: model };
+          } catch (e) {
+            continue;
+          }
+      }
+      throw new Error('Unable to build agent with any model variant');
+    };
+
+    const { instance: tokenMarket, modelUsed: tokenMarketModel } = await buildWithFallback(require('./agents/token-market-agent/agent').agent, env.LLM_MODEL); // Use main model for token detection
+    const { instance: webSearch, modelUsed: webSearchModel } = await buildWithFallback(require('./agents/web-search-agent/agent').agent, env.QUERY_LLM_MODEL); // Use query model for web search
+    const { instance: marketData, modelUsed: marketDataModel } = await buildWithFallback(require('./agents/market-data-agent/agent').agent, 'gemini-1.5-flash-8b'); // Use 8b variant for market data
+    const { instance: contentScraping, modelUsed: contentScrapingModel } = await buildWithFallback(require('./agents/content-scraping-agent/agent').agent, 'gemini-2.0-flash'); // Use 2.0 for content scraping
+    const { instance: analysis, modelUsed: analysisModel } = await buildWithFallback(require('./agents/analysis-agent/agent').agent, env.LLM_MODEL); // Use main model for final analysis
     
-    console.log('📋 Testing agent creation...');
-    const coordinator = await coordinatorAgent();
-    const research = await researchAgent();
-    const analysis = await analysisAgent();
-    
-    console.log('✅ All agents created successfully');
-    console.log(`📊 Coordinator: ${coordinator.agent.name}`);
-    console.log(`🔍 Research: ${research.agent.name}`);
-    console.log(`📈 Analysis: ${analysis.agent.name}`);
+
+    const { pipeline } = await buildPipeline({ 
+      tokenMarket: tokenMarketModel, 
+      webSearch: webSearchModel, 
+      marketData: marketDataModel, 
+      contentScraping: contentScrapingModel, 
+      analysis: analysisModel 
+    });
+
+  console.log('Agents ready');
     
     const testQuery = env.USER_QUERY;
-    console.log(`\n🎯 Running user query: "${testQuery}"`);
-    console.log(`📝 Query source: ${process.env.USER_QUERY ? 'Environment variable' : 'Default value'}`);
+  console.log(`Running query: "${testQuery}"`);
     
-    console.log('\n1. Research phase...');
-    let researchResult: string;
+    const sessionService = new InMemorySessionService();
+    const session = await sessionService.createSession('crypto-analysis-app', 'user-default', {
+      original_query: testQuery,
+      current_step: 'init'
+    });
+
+    const appendState = async (author: string, delta: Record<string, any>, message: string) => {
+      const event = new Event({ author, content: { parts: [{ text: message }] }, actions: new EventActions({ stateDelta: delta }), timestamp: Math.floor(Date.now() / 1000) });
+      await sessionService.appendEvent(session, event);
+    };
+
+    const safeParseJson = (text: string): any => { try { const cleaned = text.trim().replace(/^```(json)?/i, '').replace(/```$/i, '').trim(); return JSON.parse(cleaned); } catch { return { raw: text }; } };
+
+  const askWithModelFallback = async (runnerFactory: (model: string) => Promise<{ runner: any }>, prompt: string, primaryModel: string): Promise<string> => {
+      const modelsToTry = [primaryModel, ...fallbackModels].filter((m, i, arr) => arr.indexOf(m) === i);
+      let lastError: any;
+      for (const model of modelsToTry) {
+        try {
+          const agentInstance = await runnerFactory(model);
+          return await retryWithBackoff(() => agentInstance.runner.ask(prompt), model, env.MAX_RETRIES);
+        } catch (err: any) {
+          const msg = String(err?.message || '').toLowerCase();
+          const code = err?.error?.status || err?.status || '';
+          const isQuotaError = msg.includes('quota') || msg.includes('resource_exhausted') || err?.status === 429 || code === 'RESOURCE_EXHAUSTED';
+          const isOverloadError = msg.includes('unavailable') || msg.includes('overloaded') || err?.status === 503 || code === 'UNAVAILABLE';
+          const isTransient = isQuotaError || isOverloadError;
+          if (!isTransient) throw err;
+          let suggestedRetryMs = 0;
+          if (isQuotaError && err?.error?.details) {
+            try { const retryInfo = err.error.details.find((d: any) => d['@type']?.includes('RetryInfo')); if (retryInfo?.retryDelay) { const match = retryInfo.retryDelay.match(/(\d+)s/); if (match) suggestedRetryMs = parseInt(match[1]) * 1000; } } catch (e) {}
+          }
+          let delayMs = suggestedRetryMs || (modelsToTry.indexOf(model) * 5000 + 5000);
+          if (isQuotaError && !suggestedRetryMs) delayMs = Math.max(60000, delayMs);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          lastError = err;
+          continue;
+        }
+      }
+      throw lastError || new Error('All models failed');
+    };
+
+  console.log('\n1. Token & Market phase...');
+    let tokenMarketResultRaw = '';
     try {
-      researchResult = await retryWithBackoff(
-        () => research.runner.ask(testQuery),
-        env.QUERY_LLM_MODEL, // Use the query model for research
-        env.MAX_RETRIES
+      tokenMarketResultRaw = await askWithModelFallback(
+        (model) => require('./agents/token-market-agent/agent').agent(model),
+        testQuery,
+        tokenMarketModel
       );
-      
-      if (!researchResult || researchResult.trim().length === 0) {
-        researchResult = "Research phase completed but returned no data. This may be due to model errors or empty responses.";
+      const parsed = safeParseJson(tokenMarketResultRaw);
+      if ((!parsed.tokens || parsed.tokens.length === 0) && !parsed.market_data_summary) {
+        console.warn('⚠️ Token market step returned empty content – attempting one more fallback cycle with all models.');
+        for (const model of fallbackModels) {
+          if (model === tokenMarketModel) continue;
+          try {
+            const retryRaw = await retryWithBackoff(
+              async () => {
+                const rebuilt = await require('./agents/token-market-agent/agent').agent(model);
+                return rebuilt.runner.ask(testQuery);
+              },
+              model,
+              env.MAX_RETRIES
+            );
+            const retryParsed = safeParseJson(retryRaw);
+            if (retryParsed.tokens?.length || retryParsed.market_data_summary) {
+              tokenMarketResultRaw = retryRaw;
+              Object.assign(parsed, retryParsed);
+              break;
+            }
+          } catch (e) {
+            console.warn(`Secondary fallback model ${model} also produced empty/failed output.`);
+          }
+        }
       }
-      
-      console.log('✅ Research completed');
-      console.log('Research result preview:', researchResult.substring(0, 200) + '...');
+      await appendState('token_market_agent', {
+        current_step: 'token_market_done',
+        detected_tokens: parsed.tokens || [],
+        market_data_summary: parsed.market_data_summary || '',
+        token_market_raw: parsed
+      }, 'Token & Market data captured');
+      console.log('✅ Token/Market step complete');
     } catch (error: any) {
-      console.error('❌ Research phase failed:', error.message);
-      if (error?.message?.includes("quota") || error?.status === 429) {
-        const retryDelay = parseRetryDelay(error);
-        console.log(`⏰ Quota exceeded. Recommended wait time: ${retryDelay / 1000} seconds`);
-        console.log('🔗 To fix this issue permanently, consider upgrading to paid tier at: https://aistudio.google.com/app/apikey');
-        researchResult = `Research failed due to API quota limits: ${error.message}`;
-      } else {
-        researchResult = `Research failed due to error: ${error.message}. This may be due to malformed function calls or model issues.`;
-      }
+      console.error('❌ Token/Market phase failed:', error?.message);
+      await appendState('system', { token_market_error: error?.message, current_step: 'token_market_failed' }, 'Token market step failed');
     }
 
-    console.log('\n2. Analysis phase...');
+    console.log('⏳ Adding delay to prevent model overloading...');
+    await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second delay
+
+  console.log('\n2. Research Pipeline...');
+  let researchResultRaw = '';
+    try {
+  console.log('   Web Search phase...');
+      const webSearchResult = await askWithModelFallback(
+        (model) => require('./agents/web-search-agent/agent').agent(model),
+        `User Query: ${testQuery}\nDetected Tokens (from state): ${(session.state.detected_tokens || []).join(', ')}`,
+        webSearchModel
+      );
+      
+      await new Promise(resolve => setTimeout(resolve, 4000)); // Increased to 4 seconds
+      
+  console.log('   Market Data phase...');
+      const marketDataResult = await askWithModelFallback(
+        (model) => require('./agents/market-data-agent/agent').agent(model),
+        `User Query: ${testQuery}\nDetected Tokens: ${(session.state.detected_tokens || []).join(', ')}\nWeb Search Results: ${webSearchResult}`,
+        marketDataModel
+      );
+      
+      await new Promise(resolve => setTimeout(resolve, 4000)); // Increased to 4 seconds
+      
+  console.log('   Content Scraping phase...');
+      const contentScrapingResult = await askWithModelFallback(
+        (model) => require('./agents/content-scraping-agent/agent').agent(model),
+        `User Query: ${testQuery}\nWeb Search Results: ${webSearchResult}\nMarket Data: ${marketDataResult}`,
+        contentScrapingModel
+      );
+      
+      const safeParseResult = (result: string, name: string) => {
+        try {
+          return JSON.parse(result || '{}');
+        } catch (e) {
+          console.warn(`Failed to parse ${name} result, using fallback:`, e);
+          return { error: `Failed to parse ${name} result`, raw: result };
+        }
+      };
+      
+      researchResultRaw = JSON.stringify({
+        web_search: safeParseResult(webSearchResult, 'web search'),
+        market_data: safeParseResult(marketDataResult, 'market data'),
+        content_scraping: safeParseResult(contentScrapingResult, 'content scraping')
+      });
+      
+      const parsed = safeParseJson(researchResultRaw);
+      await appendState('specialized_research_pipeline', {
+        current_step: 'research_done',
+        web_search_queries: parsed.search_queries_used || [],
+        web_top_findings: parsed.top_findings || '',
+        web_sources: parsed.sources || [],
+        web_scraped_excerpt: parsed.scraped_excerpt || '',
+        combined_research_data: parsed
+      }, 'Specialized research pipeline complete');
+  console.log('✅ Research pipeline complete');
+    } catch (error: any) {
+      console.error('❌ Research Pipeline phase failed:', error?.message);
+      await appendState('system', { research_error: error?.message, current_step: 'research_failed' }, 'Research pipeline failed');
+    }
+
+    console.log('⏳ Adding delay before analysis phase...');
+    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay before analysis
+
+    console.log('\n3. Analysis phase...');
     let analysisResult: string;
-    // marketSummary is declared here so it's available when building finalResult
     let marketSummary = '';
     try {
-      // Fetch structured market data (including indicators) for tokens mentioned in query
       try {
         console.log('🔎 Fetching CoinGecko market data (including indicators) for tokens...');
-        // Call the coingecko market data tool directly (avoid relying on runner internals)
-        const marketResp = await (coinGeckoMarketData as any).fn({ tokens: ['IQ', 'PEAR'] });
+  const { fetchCoinGeckoMarketData } = require('./agents/market-data-agent/tools');
+  const marketResp = await fetchCoinGeckoMarketData(['IQ', 'PEAR']);
         if (marketResp && marketResp.success && marketResp.market_data) {
           for (const [id, coinRaw] of Object.entries(marketResp.market_data as any)) {
             const coin: any = coinRaw as any;
@@ -108,17 +259,21 @@ async function main() {
         console.warn('Failed to fetch market indicators via tool:', err?.message ?? err);
       }
 
-      const dataToAnalyze = researchResult.trim()
-        ? `Analyze this research data: ${researchResult}\n\nMarket Indicators Snapshot:${marketSummary}`
-        : `Perform a general technical analysis on IQ token and PEAR Protocol based on your knowledge. Note: Research phase did not return data, so provide analysis based on available information.\n\nMarket Indicators Snapshot:${marketSummary}`;
-      
+      const researchComposite = `${session.state.market_data_summary || ''}\n\n${session.state.web_top_findings || ''}\n\n${session.state.web_scraped_excerpt || ''}`;
+      const dataToAnalyze = researchComposite.trim()
+        ? `Perform deep cryptocurrency analysis using the provided research & market context.\n\nRESEARCH CONTEXT:\n${researchComposite}\n\nMarket Indicators Snapshot:${marketSummary}`
+        : `Perform a general technical analysis based on your knowledge. Note: earlier research steps returned little data.\n\nMarket Indicators Snapshot:${marketSummary}`;
+
       analysisResult = await retryWithBackoff(
         () => analysis.runner.ask(dataToAnalyze),
-        env.LLM_MODEL, // Use the main model for analysis
+        analysisModel,
         env.MAX_RETRIES
       );
       console.log('✅ Analysis completed');
-      console.log('Analysis result preview:', analysisResult.substring(0, 200) + '...');
+      await appendState('analysis_agent', {
+        current_step: 'analysis_done',
+        analysis_summary: analysisResult
+      }, 'Analysis completed');
     } catch (error: any) {
       console.error('❌ Analysis phase failed. Error:', error?.message ?? error);
       if (error?.status === 503 || String(error?.message || '').toLowerCase().includes('unavailable') || String(error?.message || '').toLowerCase().includes('overload')) {
@@ -132,31 +287,59 @@ async function main() {
       }
 
       analysisResult = `Analysis failed due to API error: ${error?.message ?? JSON.stringify(error)}`;
+      await appendState('system', { analysis_error: analysisResult, current_step: 'analysis_failed' }, 'Analysis step failed');
     }
     
     const endTime = Date.now();
     const duration = endTime - startTime;
     
+    console.log('\n4. Validating analysis quality...');
+    const researchData = (session.state.web_top_findings || '') + '\n' + (session.state.web_scraped_excerpt || '');
+    const extractedTokens = extractTokensFromQuery(testQuery);
+    const validation = validateAnalysisWorkflow(testQuery, researchResultRaw, analysisResult);
+    
+    console.log(`📊 Validation Results:`);
+    console.log(`   Quality Score: ${validation.score}/100`);
+    console.log(`   Valid: ${validation.isValid ? '✅' : '❌'}`);
+    console.log(`   Extracted Tokens: ${extractedTokens.join(', ') || 'None'}`);
+    
+    if (validation.errors.length > 0) {
+      console.log(`   Errors: ${validation.errors.length}`);
+      validation.errors.forEach(error => console.log(`     ❌ ${error}`));
+    }
+    
+    if (validation.warnings.length > 0) {
+      console.log(`   Warnings: ${validation.warnings.length}`);
+      validation.warnings.forEach(warning => console.log(`     ⚠️ ${warning}`));
+    }
+    
     const finalResult: AnalysisResult = {
       timestamp: new Date().toISOString(),
       query: testQuery,
       agents: {
-        coordinator: coordinator.agent.name,
-        research: research.agent.name,
-        analysis: analysis.agent.name
+        research: "specialized_research_pipeline",
+        analysis: analysis.agent.name,
+        pipeline: pipeline.name
       },
       results: {
         research: {
-          data: researchResult,
-          preview: researchResult.substring(0, 200) + '...'
+          data: researchData,
+          preview: researchData.substring(0, 200) + '...'
         },
         analysis: {
           data: analysisResult,
           preview: analysisResult.substring(0, 200) + '...'
         }
       },
+      validation: {
+        score: validation.score,
+        isValid: validation.isValid,
+        errors: validation.errors,
+        warnings: validation.warnings,
+        extractedTokens: extractedTokens
+      },
       ...( { market_snapshot: marketSummary } as any ),
-      status: 'completed',
+      status: validation.isValid ? 'completed' : 'completed-with-issues',
       duration: duration
     };
     
@@ -170,16 +353,22 @@ async function main() {
     
     fs.writeFileSync(outputPath, JSON.stringify(finalResult, null, 2), 'utf-8');
 
-    // Also save a plain-text summary alongside the JSON
     const textFilename = filename.replace(/\.json$/, '.txt');
     const textOutputPath = path.join(outputDir, textFilename);
 
     const textContent = [
       `Timestamp: ${finalResult.timestamp}`,
       `Query: ${finalResult.query}`,
-      `Agents: Coordinator=${finalResult.agents.coordinator}, Research=${finalResult.agents.research}, Analysis=${finalResult.agents.analysis}`,
+  `Agents: Pipeline=${finalResult.agents.pipeline}, Research=${finalResult.agents.research}, Analysis=${finalResult.agents.analysis}`,
       `Status: ${finalResult.status}`,
       `Duration(ms): ${finalResult.duration}`,
+      '',
+      '--- Validation Results ---',
+      `Quality Score: ${validation.score}/100`,
+      `Valid: ${validation.isValid}`,
+      `Extracted Tokens: ${extractedTokens?.join(', ') || 'None'}`,
+      ...(validation.errors.length > 0 ? [`Errors: ${validation.errors.join('; ')}`] : []),
+      ...(validation.warnings.length > 0 ? [`Warnings: ${validation.warnings.join('; ')}`] : []),
       '',
       '--- Research (preview) ---',
       finalResult.results.research.preview,
@@ -202,14 +391,13 @@ async function main() {
   } catch (error) {
     console.error('❌ Application failed:', error);
     
-    // Save error result to JSON as well
     const errorResult: AnalysisResult = {
       timestamp: new Date().toISOString(),
       query: env.USER_QUERY,
       agents: {
-        coordinator: "unknown",
         research: "unknown", 
-        analysis: "unknown"
+        analysis: "unknown",
+        pipeline: "unknown"
       },
       results: {
         research: {

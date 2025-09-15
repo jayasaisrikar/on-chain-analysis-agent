@@ -8,6 +8,7 @@ export const envSchema = z.object({
 	GOOGLE_API_KEY: z.string(),
 	EXA_API_KEY: z.string().optional(),
 	TAVILY_API_KEY: z.string().optional(),
+	COINGECKO_API_KEY: z.string().optional().describe("CoinGecko Pro API key for market data"),
 	USER_QUERY: z
 		.string()
 		.default("Analyze Bitcoin price trends and market sentiment")
@@ -20,6 +21,10 @@ export const envSchema = z.object({
 		.string()
 		.default("gemini-2.0-flash")
 		.describe("LLM Model for faster responses"),
+	FALLBACK_MODELS: z
+		.string()
+		.optional()
+		.describe("Comma separated list of fallback models to try on 429/503 errors (e.g. gemini-2.0-flash,gemini-1.5-flash)"),
 	REMINDER_POLLING_MS: z
 		.number()
 		.default(30_000)

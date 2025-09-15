@@ -1,14 +1,16 @@
 import { AgentBuilder } from "@iqai/adk";
 import { env } from "../../env";
-import { analyzeDataTool } from "./tools";
 
-export async function agent() {
+export async function agent(modelOverride?: string) {
+  const model = modelOverride || env.LLM_MODEL;
   return await AgentBuilder.create("analysis_agent")
-    .withModel(env.LLM_MODEL)
+    .withModel(model)
     .withDescription("Provides comprehensive cryptocurrency analysis based on research data with market insights")
     .withInstruction(`You are an expert cryptocurrency analyst with deep knowledge of market trends, technical analysis, and fundamental factors affecting digital asset prices. 
 
 Your task is to provide comprehensive, actionable cryptocurrency analysis based on multiple sources and search queries.
+
+IMPORTANT: You will receive research data directly and should provide your analysis as a detailed response. Do NOT use tools - provide the analysis directly in your response.
 
 ## Analysis Guidelines:
 1. **Synthesize Information**: Combine insights from all provided sources
@@ -78,7 +80,9 @@ Provide a well-structured analysis that covers:
 - Acknowledge conflicting information from different sources
 - Highlight uncertainties and areas requiring further research
 - Tailor the depth of analysis to the complexity of the query
-- Use markdown formatting for better readability (headings, bullet points, etc.)`)
-    .withTools(analyzeDataTool)
+- Use markdown formatting for better readability (headings, bullet points, etc.)
+- Provide analysis directly in your response without using tools
+- Minimum 300 words for comprehensive analysis
+- NEVER respond with "I cannot perform analysis" - always provide insights based on available data`)
     .build();
 }
