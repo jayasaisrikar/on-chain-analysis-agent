@@ -4,11 +4,21 @@ import { z } from "zod";
 // Central mapping of common token symbols/names to CoinGecko IDs
 export const TOKEN_ID_MAP: Record<string, string> = {
   iq: 'everipedia',
-  pear: 'pear-protocol',
+  'iq token': 'everipedia',
+  everipedia: 'everipedia',
+  pear: 'pear-protocol', 
+  'pear protocol': 'pear-protocol',
+  'pear-protocol': 'pear-protocol',
   bitcoin: 'bitcoin',
   btc: 'bitcoin',
   ethereum: 'ethereum',
-  eth: 'ethereum'
+  eth: 'ethereum',
+  dogecoin: 'dogecoin',
+  doge: 'dogecoin',
+  cardano: 'cardano',
+  ada: 'cardano',
+  solana: 'solana',
+  sol: 'solana'
 };
 
 // Regex patterns for lightweight token detection

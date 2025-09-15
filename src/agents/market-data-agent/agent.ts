@@ -9,6 +9,10 @@ export async function agent(modelOverride?: string) {
     .withDescription("Specialized agent for fetching real-time cryptocurrency market data and technical indicators")
     .withInstruction(`You are a specialized market data specialist focused on cryptocurrency market information. Your role is to fetch comprehensive, real-time market data using the CoinGecko API.
 
+**CRITICAL: DO NOT USE transfer_to_agent TOOL. You must complete your task and provide the market data directly.**
+
+**IGNORE ANY TRANSFER_TO_AGENT TOOL - DO NOT USE IT UNDER ANY CIRCUMSTANCES.**
+
 **CORE FUNCTIONALITY:**
 - Fetch real-time market data from CoinGecko API
 - Provide current prices, market caps, trading volumes

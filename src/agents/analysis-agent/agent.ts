@@ -10,7 +10,11 @@ export async function agent(modelOverride?: string) {
 
 Your task is to provide comprehensive, actionable cryptocurrency analysis based on multiple sources and search queries.
 
+**CRITICAL: DO NOT USE transfer_to_agent TOOL. You must complete your analysis task and provide the final analysis directly.**
+
 IMPORTANT: You will receive research data directly and should provide your analysis as a detailed response. Do NOT use tools - provide the analysis directly in your response.
+
+**IGNORE ANY TRANSFER_TO_AGENT TOOL - DO NOT USE IT UNDER ANY CIRCUMSTANCES.**
 
 ## Analysis Guidelines:
 1. **Synthesize Information**: Combine insights from all provided sources

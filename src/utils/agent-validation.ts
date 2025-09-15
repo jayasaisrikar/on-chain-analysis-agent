@@ -62,43 +62,65 @@ export function validateResearchOutput(
     return result;
   }
 
+  // Handle the new research data structure with nested web_search, market_data, content_scraping
+  let searchData = parsedOutput;
+  if (parsedOutput.web_search) {
+    searchData = parsedOutput.web_search;
+  }
+
+  // Check for required fields in the web_search section
   for (const field of criteria.requiredFields) {
-    if (!parsedOutput[field]) {
+    let found = false;
+    
+    if (field === 'search_queries_used' && searchData.search_queries_used) {
+      found = true;
+    } else if (field === 'top_findings' && searchData.top_findings) {
+      found = true;
+    } else if (field === 'sources' && searchData.sources) {
+      found = true;
+    } else if (field === 'scraped_excerpt') {
+      // Check in content_scraping section
+      if (parsedOutput.content_scraping?.scraped_excerpt) {
+        found = true;
+      }
+    }
+    
+    if (!found) {
       result.errors.push(`Missing required field: ${field}`);
       result.score -= 15;
     }
   }
 
-  if (parsedOutput.search_queries_used) {
-    if (!Array.isArray(parsedOutput.search_queries_used)) {
+  if (searchData.search_queries_used) {
+    if (!Array.isArray(searchData.search_queries_used)) {
       result.errors.push('search_queries_used must be an array');
       result.score -= 10;
-    } else if (parsedOutput.search_queries_used.length < criteria.minimumQueries) {
-      result.errors.push(`Insufficient search queries: ${parsedOutput.search_queries_used.length} < ${criteria.minimumQueries}`);
+    } else if (searchData.search_queries_used.length < criteria.minimumQueries) {
+      result.errors.push(`Insufficient search queries: ${searchData.search_queries_used.length} < ${criteria.minimumQueries}`);
       result.score -= 20;
     }
   }
 
-  if (parsedOutput.sources) {
-    if (!Array.isArray(parsedOutput.sources)) {
+  if (searchData.sources) {
+    if (!Array.isArray(searchData.sources)) {
       result.errors.push('sources must be an array');
       result.score -= 10;
-    } else if (parsedOutput.sources.length < criteria.minimumSources) {
-      result.errors.push(`Insufficient sources: ${parsedOutput.sources.length} < ${criteria.minimumSources}`);
+    } else if (searchData.sources.length < criteria.minimumSources) {
+      result.errors.push(`Insufficient sources: ${searchData.sources.length} < ${criteria.minimumSources}`);
       result.score -= 15;
     }
   }
 
-  if (parsedOutput.top_findings) {
-    const wordCount = parsedOutput.top_findings.split(/\s+/).length;
+  if (searchData.top_findings) {
+    const wordCount = searchData.top_findings.split(/\s+/).length;
     if (wordCount < criteria.minimumWordCount) {
       result.warnings.push(`Content may be too brief: ${wordCount} words < ${criteria.minimumWordCount}`);
       result.score -= 10;
     }
   }
 
-  if (parsedOutput.scraped_excerpt) {
-    if (parsedOutput.scraped_excerpt.length < 100) {
+  if (parsedOutput.content_scraping?.scraped_excerpt) {
+    if (parsedOutput.content_scraping.scraped_excerpt.length < 100) {
       result.warnings.push('Scraped content seems insufficient');
       result.score -= 5;
     }

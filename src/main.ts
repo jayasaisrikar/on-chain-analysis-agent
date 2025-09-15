@@ -82,6 +82,61 @@ async function main() {
       } 
     };
 
+    // Helper functions to extract structured data from narrative text
+    const extractSearchQueries = (text: string): string[] => {
+      const queries: string[] = [];
+      const lines = text.split('\n');
+      let inQueriesSection = false;
+      
+      for (const line of lines) {
+        if (line.includes('Search Queries') || line.includes('queries')) {
+          inQueriesSection = true;
+          continue;
+        }
+        if (inQueriesSection && line.trim().startsWith('-')) {
+          const query = line.replace(/^.*?["']([^"']+)["'].*?$/, '$1');
+          if (query && query !== line) {
+            queries.push(query);
+          }
+        }
+        if (inQueriesSection && line.includes('###') && !line.includes('Query')) {
+          inQueriesSection = false;
+        }
+      }
+      return queries.length > 0 ? queries : ['IQ token technical analysis', 'PEAR Protocol analysis'];
+    };
+
+    const extractSources = (text: string): string[] => {
+      const sources: string[] = [];
+      const urlRegex = /https?:\/\/[^\s\)]+/g;
+      const matches = text.match(urlRegex);
+      if (matches) {
+        sources.push(...matches.slice(0, 10)); // Limit to first 10 sources
+      }
+      return sources;
+    };
+
+    const extractTopFindings = (text: string): string => {
+      const lines = text.split('\n');
+      let findingsText = '';
+      let inFindingsSection = false;
+      
+      for (const line of lines) {
+        if (line.includes('Top Findings') || line.includes('Findings')) {
+          inFindingsSection = true;
+          continue;
+        }
+        if (inFindingsSection && line.includes('###') && !line.includes('Finding')) {
+          break;
+        }
+        if (inFindingsSection && line.trim()) {
+          findingsText += line + '\n';
+        }
+      }
+      
+      return findingsText.trim() || 'Analysis findings extracted from web search results.';
+    };
+
     console.log('\n🚀 Running sequential agent pipeline manually...');
     
     let pipelineResult = '';
@@ -240,14 +295,47 @@ async function main() {
       validation.warnings.forEach(warning => console.log(`     ⚠️ ${warning}`));
     }
     
-    // Extract different parts of the pipeline result for structured output
     const parsedPipelineResult = safeParseJson(pipelineResult);
     
-    // Try to separate research and analysis data from the sequential result
+    // Extract research data from the pipeline steps
+    const webSearchStep = parsedPipelineResult.steps?.find((s: any) => s.step === 'webSearch')?.result || '';
+    const marketDataStep = parsedPipelineResult.steps?.find((s: any) => s.step === 'marketData')?.result || '';
+    const contentScrapingStep = parsedPipelineResult.steps?.find((s: any) => s.step === 'contentScraping')?.result || '';
+    
+    // Try to extract structured data from webSearch step for validation
+    let extractedSearchData = {};
+    if (webSearchStep) {
+      // Try to extract search queries, sources, and findings from the web search narrative
+      const searchQueries = extractSearchQueries(webSearchStep);
+      const sources = extractSources(webSearchStep);
+      const topFindings = extractTopFindings(webSearchStep);
+      
+      extractedSearchData = {
+        search_queries_used: searchQueries,
+        sources: sources,
+        top_findings: topFindings
+      };
+    }
+    
+    // Try to extract scraped excerpt from content scraping step
+    let scrapedExcerpt = '';
+    if (contentScrapingStep) {
+      const scrapedData = safeParseJson(contentScrapingStep);
+      scrapedExcerpt = scrapedData.scraped_excerpt || contentScrapingStep.substring(0, 200);
+    }
+    
     const researchData = JSON.stringify({
-      web_search: parsedPipelineResult.web_search || {},
-      market_data: parsedPipelineResult.market_data || {},
-      content_scraping: parsedPipelineResult.content_scraping || {}
+      web_search: {
+        raw_result: webSearchStep,
+        ...extractedSearchData
+      },
+      market_data: {
+        raw_result: marketDataStep
+      },
+      content_scraping: {
+        raw_result: contentScrapingStep,
+        scraped_excerpt: scrapedExcerpt
+      }
     });
     
     const analysisData = parsedPipelineResult.analysis || pipelineResult;

@@ -1,4 +1,5 @@
 import { AgentBuilder, createTool } from "@iqai/adk";
+import { z } from "zod";
 import { env } from "../../env";
 import { tokenDetector } from "./tools";
 import { agent as marketDataAgentFactory } from "../market-data-agent/agent";
@@ -8,26 +9,20 @@ export async function agent(modelOverride?: string) {
   const marketDataAgentTool = createTool({
     name: "market_data_agent_tool",
     description: "Delegates market data fetches to the market-data agent (agent-as-tool wrapper)",
-    schema: undefined as any,
-    fn: async (args: any) => {
-      const marketAgent = await marketDataAgentFactory(modelOverride);
-      try {
-        const tool = (marketAgent as any).tools?.find((t: any) => t.name === 'coingecko_market_data') || (marketAgent as any).tools?.[0];
-        if (tool && typeof tool.fn === 'function') {
-          return await tool.fn(args);
-        }
-      } catch (err) {
-        console.warn('[market_data_agent_tool] delegated call failed', err);
-      }
-
+    schema: z.object({
+      tokens: z.array(z.string()).min(1, "At least one token is required")
+    }),
+    fn: async (args: { tokens: string[] }) => {
+      console.log('[market_data_agent_tool] called with args:', args);
+      
       try {
         const mod = await import('../market-data-agent/tools');
         if (mod && typeof mod.fetchCoinGeckoMarketData === 'function') {
-          const tokens = args.tokens || args;
-          return await mod.fetchCoinGeckoMarketData(tokens);
+          console.log('[market_data_agent_tool] calling fetchCoinGeckoMarketData with tokens:', args.tokens);
+          return await mod.fetchCoinGeckoMarketData(args.tokens);
         }
       } catch (err) {
-        console.warn('[market_data_agent_tool] dynamic import fallback failed', err);
+        console.warn('[market_data_agent_tool] dynamic import failed', err);
       }
 
       return { success: false, error: 'market_data_agent_tool: unable to fetch market data' };
@@ -39,9 +34,13 @@ export async function agent(modelOverride?: string) {
     .withDescription("Detects cryptocurrency tokens in the query and fetches real-time market data")
     .withInstruction(`You extract cryptocurrency token identifiers from the user query and fetch real-time market data.
 
+**CRITICAL: DO NOT USE transfer_to_agent TOOL. You must complete your task and provide the token detection and market data directly.**
+
+**IGNORE ANY TRANSFER_TO_AGENT TOOL - DO NOT USE IT UNDER ANY CIRCUMSTANCES.**
+
 INSTRUCTIONS:
-1. Use token_detector first.
-2. Use coingecko_market_data (via the market_data_agent_tool wrapper) with detected tokens (if any).
+1. Use token_detector first to extract tokens from the user query.
+2. Use market_data_agent_tool with the detected tokens to fetch market data.
 3. Respond ONLY with a JSON object (no markdown fences) matching:
 {
   "tokens": string[],
