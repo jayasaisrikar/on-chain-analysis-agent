@@ -106,7 +106,7 @@ const generateMarkdownReport = (analysisResult: AnalysisResult): string => {
     fullSection = 'No detailed analysis available.';
   } else if (typeof full === 'string') {
     const unescaped = full.replace(/\\n/g, '\n');
-    fullSection = '```md\n' + unescaped + '\n```';
+    fullSection = '\n' + unescaped + '\n';
   } else {
     fullSection = '```json\n' + JSON.stringify(full, null, 2) + '\n```';
   }
