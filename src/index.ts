@@ -14,7 +14,7 @@ dotenv.config();
 async function main() {
 	const { runner } = await getRootAgent();
 
-	const question = "Provide analysis for IQ Token and PEAR.";
+	const question = "Provide analysis for DOGE and LOKA.";
 
 	console.log(`🔍 Question: ${question}`);
 	const response = await runner.ask(question);
