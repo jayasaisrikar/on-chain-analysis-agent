@@ -3,41 +3,25 @@ import { z } from "zod";
 
 config();
 
+/**
+ * Environment variable schema definition for the crypto analysis agent.
+ *
+ * Simplified configuration following Token-Analyzer architecture:
+ * - ADK_DEBUG: Optional debug mode flag (defaults to false)
+ * - GOOGLE_API_KEY: Required API key for Google/Gemini model access
+ * - TAVILY_API_KEY: Optional API key for web search functionality
+ * - LLM_MODEL: Model selection for analysis
+ */
 export const envSchema = z.object({
-	ADK_DEBUG: z.string().default("false"),
+	ADK_DEBUG: z.coerce.boolean().default(false),
 	GOOGLE_API_KEY: z.string(),
-	EXA_API_KEY: z.string().optional(),
 	TAVILY_API_KEY: z.string().optional(),
-	COINGECKO_API_KEY: z.string().optional().describe("CoinGecko Pro API key for market data"),
-	USER_QUERY: z
-		.string()
-		.default("Analyze Bitcoin price trends and market sentiment")
-		.describe("User query to analyze"),
-	LLM_MODEL: z
-		.string()
-		.default("gemini-2.5-flash")
-		.describe("LLM Model common to use by all the agents"),
-	QUERY_LLM_MODEL: z
-		.string()
-		.default("gemini-2.0-flash")
-		.describe("LLM Model for faster responses"),
-	FALLBACK_MODELS: z
-		.string()
-		.optional()
-		.describe("Comma separated list of fallback models to try on 429/503 errors (e.g. gemini-2.0-flash,gemini-1.5-flash)"),
-	REMINDER_POLLING_MS: z
-		.number()
-		.default(30_000)
-		.describe("Polling interval for checking reminders in MS"),
-	ENABLE_RATE_LIMITING: z
-		.string()
-		.default("true")
-		.describe("Enable rate limiting to prevent quota errors"),
-	MAX_RETRIES: z
-		.string()
-		.default("3")
-		.transform((val) => parseInt(val))
-		.describe("Maximum number of retries for quota errors"),
+	COINGECKO_API_KEY: z.string().optional(),
+	LLM_MODEL: z.string().default("gemini-2.5-flash")
 });
 
+/**
+ * Validated environment variables parsed from process.env.
+ * Throws an error if required environment variables are missing or invalid.
+ */
 export const env = envSchema.parse(process.env);

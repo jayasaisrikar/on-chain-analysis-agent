@@ -1,36 +1,28 @@
-import { SequentialAgent } from "@iqai/adk";
-import { agent as tokenMarketAgent } from "./token-market-agent/agent";
-import { agent as webSearchAgent } from "./web-search-agent/agent";
-import { agent as marketDataAgent } from "./market-data-agent/agent";
-import { agent as contentScrapingAgent } from "./content-scraping-agent/agent";
-import { agent as analysisAgent } from "./analysis-agent/agent";
+import { AgentBuilder } from "@iqai/adk";
+import { env } from "../env";
+import { getAnalysisAgent } from "./analysis-agent/agent";
+import { getResearchAgent } from "./research-agent/agent";
 
-export async function buildPipeline(models?: { 
-  tokenMarket?: string; 
-  webSearch?: string; 
-  marketData?: string; 
-  contentScraping?: string; 
-  analysis?: string 
-}) {
-  const tokenMarket = await tokenMarketAgent(models?.tokenMarket);
-  const webSearch = await webSearchAgent(models?.webSearch);
-  const marketData = await marketDataAgent(models?.marketData);
-  const contentScraping = await contentScrapingAgent(models?.contentScraping);
-  const analysis = await analysisAgent(models?.analysis);
+/**
+ * Creates and configures the root agent for crypto analysis orchestration.
+ *
+ * This agent serves as the main orchestrator that runs research agents in sequence
+ * and then passes their outputs to the analysis agent for a final report.
+ *
+ * @returns The fully constructed root agent instance ready to process requests
+ */
+export const getRootAgent = async () => {
+  const researchAgent = getResearchAgent();
+  const analysisAgent = getAnalysisAgent();
 
-  const pipeline = new SequentialAgent({
-    name: "crypto_research_pipeline",
-    description: "Specialized pipeline: token detection → web search → market data → content scraping → analysis",
-    subAgents: [
-      tokenMarket.agent, 
-      webSearch.agent, 
-      marketData.agent, 
-      contentScraping.agent, 
-      analysis.agent
-    ]
-  });
-
-  return { pipeline, tokenMarket, webSearch, marketData, contentScraping, analysis };
-}
-
-export { tokenMarketAgent, webSearchAgent, marketDataAgent, contentScrapingAgent, analysisAgent };
+  return await AgentBuilder.create("root_agent")
+    .withDescription(
+      "Root agent that coordinates research and analysis agents for crypto asset analysis."
+    )
+    .withInstruction(
+      "Coordinate research and analysis agents to process user requests and deliver results."
+    )
+    .withModel(env.LLM_MODEL)
+    .asSequential([researchAgent, analysisAgent])
+    .build();
+};
