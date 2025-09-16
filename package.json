@@ -35,12 +35,16 @@
 		"cheerio": "^1.1.2",
 		"dotenv": "^17.2.2",
 		"jsdom": "^26.1.0",
+		"markdown-it": "^14.1.0",
+		"marked": "^16.3.0",
 		"playwright": "^1.55.0",
+		"puppeteer": "^24.21.0",
 		"stopword": "^3.1.5",
 		"tavily": "^1.0.2",
 		"zod": "^4.1.5"
 	},
 	"devDependencies": {
+		"@types/markdown-it": "^14.1.2",
 		"@types/node": "^24.3.1",
 		"@types/stopword": "^2.0.3",
 		"rimraf": "^6.0.1",
