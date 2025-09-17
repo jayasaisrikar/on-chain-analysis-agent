@@ -6,16 +6,13 @@ config();
 /**
  * Environment variable schema definition for the crypto analysis agent.
  *
- * Simplified configuration following Token-Analyzer architecture:
- * - ADK_DEBUG: Optional debug mode flag (defaults to false)
- * - GOOGLE_API_KEY: Required API key for Google/Gemini model access
- * - COINGECKO_API_KEY: Optional API key for CoinGecko market data access
- * - TAVILY_API_KEY: Optional API key for web search functionality
- * - LLM_MODEL: Model selection for analysis
+ Multiple api keys are given as optional to make the agent model agnostic.
  */
-export const envSchema = z.object({
+	export const envSchema = z.object({
 	ADK_DEBUG: z.coerce.boolean().default(false),
-	GOOGLE_API_KEY: z.string(),
+	GOOGLE_API_KEY: z.string().optional(),
+	GEMINI_API_KEY: z.string().optional(),
+	OPENAI_API_KEY: z.string().optional(),
 	TAVILY_API_KEY: z.string().optional(),
 	COINGECKO_API_KEY: z.string().optional(),
 	LLM_MODEL: z.string().default("gemini-2.5-flash")
