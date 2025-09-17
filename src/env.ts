@@ -9,6 +9,7 @@ config();
  * Simplified configuration following Token-Analyzer architecture:
  * - ADK_DEBUG: Optional debug mode flag (defaults to false)
  * - GOOGLE_API_KEY: Required API key for Google/Gemini model access
+ * - COINGECKO_API_KEY: Optional API key for CoinGecko market data access
  * - TAVILY_API_KEY: Optional API key for web search functionality
  * - LLM_MODEL: Model selection for analysis
  */

@@ -1,12 +1,13 @@
 import { LlmAgent } from "@iqai/adk";
 import { env } from "../../../../env";
 import { tokenDetectionTool } from "./tools";
+import dedent from "dedent";
 
 /**
  * Agent for cryptocurrency token detection and identification
  */
 export const getTokenDetectionAgent = () => {
-  const instruction = `
+  const instruction = dedent`
     You are a cryptocurrency token detection specialist. Your role is to identify and extract 
     cryptocurrency tokens mentioned in user queries with high accuracy.
     

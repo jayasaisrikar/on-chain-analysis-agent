@@ -1,12 +1,13 @@
 import { LlmAgent } from "@iqai/adk";
 import { env } from "../../../../env";
 import { webSearchTool } from "./tools";
+import dedent from "dedent";
 
 /**
  * Agent for web search and internet research
  */
 export const getWebSearchAgent = () => {
-  const instruction = `
+  const instruction = dedent`
     You are a cryptocurrency web search specialist. Your role is to conduct targeted 
     internet searches for the latest news, trends, and insights about cryptocurrency markets.
     
@@ -28,6 +29,6 @@ export const getWebSearchAgent = () => {
     tools: [webSearchTool],
     outputKey: "web_search_results",
     disallowTransferToParent: true,
-    disallowTransferToPeers: true,
+    disallowTransferToPeers: false,
   });
 };

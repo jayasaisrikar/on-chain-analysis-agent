@@ -2,6 +2,7 @@ import { ParallelAgent } from "@iqai/adk";
 import { getTokenDetectionAgent } from "./sub_agents/token-detection-agent/agent";
 import { getMarketDataAgent } from "./sub_agents/market-data-agent/agent";
 import { getWebSearchAgent } from "./sub_agents/web-search-agent/agent";
+import { getSynonymGeneratorAgent } from "./sub_agents/synonym-generator-agent/agent";
 
 /**
  * Creates and configures a research agent specialized in gathering cryptocurrency research data.
@@ -18,6 +19,7 @@ export const getResearchAgent = () => {
     subAgents: [
       getTokenDetectionAgent(),
       getMarketDataAgent(), 
+      getSynonymGeneratorAgent(),
       getWebSearchAgent(),
     ],
   });

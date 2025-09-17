@@ -1,12 +1,13 @@
 import { LlmAgent } from "@iqai/adk";
 import { env } from "../../../../env";
 import { marketDataTool } from "./tools";
+import dedent from "dedent";
 
 /**
  * Agent for cryptocurrency market data fetching and analysis
  */
 export const getMarketDataAgent = () => {
-  const instruction = `
+  const instruction = dedent`
     You are a cryptocurrency market data specialist. Your role is to fetch and analyze 
     real-time market data for cryptocurrency tokens using the CoinGecko API.
     
