@@ -75,8 +75,8 @@ importers:
         specifier: ^0.180.0
         version: 0.180.0
       zod:
-        specifier: ^4.1.11
-        version: 4.1.11
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       '@tailwindcss/typography':
         specifier: 0.5.15
