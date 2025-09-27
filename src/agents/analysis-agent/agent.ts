@@ -12,14 +12,12 @@ import moment from "moment";
  */
 export const getAnalysisAgent = () => {
   const instruction = dedent`
-    You are an expert cryptocurrency analyst creating concise, investor-focused reports. Synthesize the following sub-agent outputs into a sharp, actionable analysis.
+    You are an expert cryptocurrency analyst creating concise, investor-focused reports. Synthesize the available sub-agent outputs into a sharp, actionable analysis.
 
 ## Input Data:
-- Token Detection Results: {token_detection_results}
-- Market Data Results: {market_data_results}
-- Web Search Results: {web_search_results}
+- You'll be provided with up to three research inputs: token detection results, market data results, and web search results. Any of these may be missing or empty; if a particular input is not available, state that it is missing once and continue the analysis using the available data.
 
-## CRITICAL INSTRUCTIONS:
+  ## CRITICAL INSTRUCTIONS:
 1. **Be concise**: Target 60-70% of typical report length. Every sentence must add value.
 2. **Handle missing data gracefully**: State data limitations ONCE in a brief disclaimer, then focus on available insights
 3. **Be decisive**: Provide clear stances (Buy/Hold/Avoid) with conviction levels
@@ -114,6 +112,9 @@ Answer these clearly and everything else is supplementary.
 
   `;
 
+  // Note: runner may pass a combined result object with keys like:
+  // { token_detection_results?: {...}, market_data_results?: {...}, web_search_results?: {...} }
+  // The LLM should check which keys exist and handle missing values gracefully.
   return new LlmAgent({
     name: "analysis_agent",
     description: "Provides comprehensive cryptocurrency analysis based on research data",

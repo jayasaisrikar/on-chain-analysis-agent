@@ -1,0 +1,45 @@
+/* Minimal highlight.js theme (GitHub-like) for rehype-highlight */
+/* Colors chosen to fit the dark site theme */
+.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0.6rem 0.75rem;
+  background: #0b0f17; /* match global dark background */
+  color: #cbd5e1; /* slate-300 */
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.hljs-comment,
+.hljs-quote { color: #94a3b8; font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst { color: #7c3aed; font-weight: 600; }
+.hljs-literal,
+.hljs-number,
+.hljs-tag .hljs-attr,
+.hljs-template-variable,
+.hljs-variable { color: #60a5fa; }
+.hljs-string,
+.hljs-doctag { color: #34d399; }
+.hljs-title,
+.hljs-section,
+.hljs-selector-id { color: #f472b6; font-weight: 600; }
+.hljs-subst { font-weight: normal; }
+.hljs-type,
+.hljs-class .hljs-title { color: #fb923c; }
+.hljs-attribute { color: #f59e0b; }
+.hljs-built_in,
+.hljs-builtin-name { color: #fcd34d; }
+.hljs-meta { color: #9ca3af; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
+/* Inline code styles inside prose */
+p code, li code, span code {
+  background: rgba(255,255,255,0.03);
+  padding: 0.08rem 0.3rem;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+  font-size: 0.92rem;
+}
