@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { runAnalysis, AnalysisEvent } from '../../../../src/bridge';
+import { runAnalysis, AnalysisEvent } from '../../../../src';
 
 export const runtime = 'nodejs';
 

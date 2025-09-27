@@ -22,13 +22,6 @@ const nextConfig = {
       }];
     }
 
-    // Add module resolution for monorepo structure
-    config.resolve.modules = [
-      'node_modules',
-      '../node_modules', // Parent directory node_modules
-      ...config.resolve.modules || []
-    ];
-
     // Add fallbacks for Node.js modules
     config.resolve.fallback = {
       ...config.resolve.fallback,
