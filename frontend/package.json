@@ -11,6 +11,7 @@
     "deploy:preview": "vercel",
     "vercel:dev": "vercel dev"
   },
+
   "dependencies": {
     "@babylonjs/core": "^8.29.0",
     "@babylonjs/loaders": "^8.29.0",
