@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@iqai/adk':
-        specifier: 0.3.2
-        version: 0.3.2(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))(@types/node@24.4.0)(@types/pg@8.15.5)(typescript@5.9.2)(ws@8.18.3)
+        specifier: 0.3.6
+        version: 0.3.6(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))(@types/node@24.4.0)(@types/pg@8.15.5)(typescript@5.9.2)(ws@8.18.3)
       dedent:
         specifier: ^1.7.0
         version: 1.7.0
@@ -274,8 +274,8 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
-  '@iqai/adk@0.3.2':
-    resolution: {integrity: sha512-ggBVKqpaeozZ7rpA6ZqaNiqsesq8GVNuBoNQShi3jP/pM6C/mhpA7Cy8Ryp4lom3thj1HhdqinI/fBrD26I+Nw==}
+  '@iqai/adk@0.3.6':
+    resolution: {integrity: sha512-3z9p5KX+6qF6mSFO5db9uAHshCUkB6VMPR5rmRp7VfCEiKKd5UbU11jd9tn9EyjgQQO6U0VZO8ZJ8BzKk8Uh9w==}
     engines: {node: '>=22.0'}
     hasBin: true
     peerDependencies:
@@ -2177,7 +2177,7 @@ snapshots:
       protobufjs: 7.5.4
       yargs: 17.7.2
 
-  '@iqai/adk@0.3.2(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))(@types/node@24.4.0)(@types/pg@8.15.5)(typescript@5.9.2)(ws@8.18.3)':
+  '@iqai/adk@0.3.6(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))(@types/node@24.4.0)(@types/pg@8.15.5)(typescript@5.9.2)(ws@8.18.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.61.0
       '@clack/prompts': 0.11.0
