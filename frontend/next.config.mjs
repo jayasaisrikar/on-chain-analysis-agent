@@ -9,7 +9,7 @@ const nextConfig = {
     esmExternals: 'loose'
   },
   // Optimize for Vercel deployment
-  output: 'standalone',
+  // output: 'standalone', // Removed for Vercel deployment
   images: {
     domains: [],
     unoptimized: false

@@ -1,15 +1,27 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "frontend/package.json",
-      "use": "@vercel/next"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/.next",
+  "installCommand": "cd frontend && npm install",
+  "framework": "nextjs",
+  "functions": {
+    "frontend/app/api/analyze/route.ts": {
+      "maxDuration": 60
+    },
+    "frontend/app/api/coinapi/route.ts": {
+      "maxDuration": 30
     }
-  ],
-  "routes": [
+  },
+  "regions": ["iad1"],
+  "headers": [
     {
-      "src": "/(.*)",
-      "dest": "frontend/$1"
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
     }
   ]
 }
