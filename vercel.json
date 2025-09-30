@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm install && cd frontend && pnpm install && pnpm run build",
+  "buildCommand": "pnpm install --frozen-lockfile && cd frontend && pnpm run build",
   "outputDirectory": "frontend/.next",
-  "installCommand": "pnpm install && cd frontend && pnpm install",
-  "framework": "nextjs",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "framework": null,
   "functions": {
     "frontend/app/api/analyze/route.ts": {
       "maxDuration": 60
