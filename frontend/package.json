@@ -41,7 +41,6 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "0.5.15",
-    "@types/moment": "^2.13.0",
     "@types/node": "^24.3.1",
     "@types/react": "19",
     "autoprefixer": "10.4.20",
