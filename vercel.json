@@ -1,9 +1,15 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd frontend && pnpm run build",
-  "outputDirectory": "frontend/.next",
-  "installCommand": "cd frontend && pnpm install --frozen-lockfile",
-  "framework": "nextjs",
+  "version": 2,
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/next",
+      "config": {
+        "installCommand": "cd .. && pnpm install --frozen-lockfile && cd frontend && pnpm install --frozen-lockfile",
+        "buildCommand": "cd .. && pnpm install --frozen-lockfile && cd frontend && pnpm run build"
+      }
+    }
+  ],
   "functions": {
     "frontend/app/api/analyze/route.ts": {
       "maxDuration": 60
@@ -12,16 +18,10 @@
       "maxDuration": 30
     }
   },
-  "regions": ["iad1"],
-  "headers": [
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store, no-cache, must-revalidate"
-        }
-      ]
+      "src": "/(.*)",
+      "dest": "frontend/$1"
     }
   ]
 }
