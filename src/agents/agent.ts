@@ -17,10 +17,10 @@ export const getRootAgent = async () => {
 
   return await AgentBuilder.create("root_agent")
     .withDescription(
-      "Root agent that coordinates research and analysis agents for crypto asset analysis."
+      "Root agent that coordinates research and analysis agents for crypto asset analysis with proper data flow."
     )
     .withInstruction(
-      "Coordinate research and analysis agents to process user requests and deliver results."
+      "Coordinate research and analysis agents sequentially. First, run the research agent to gather market data, token information, and web search results. Then pass all collected data to the analysis agent for final report generation. Ensure market data from the research phase is preserved and available to the analysis agent."
     )
     .withModel(env.LLM_MODEL)
     .asSequential([researchAgent, analysisAgent])

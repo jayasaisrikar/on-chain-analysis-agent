@@ -2,6 +2,7 @@ import { LlmAgent } from "@iqai/adk";
 import { env } from "../../env";
 import dedent from "dedent";
 import moment from "moment";
+import { sessionDebugTool } from "../../tools/session-debug";
 
 /**
  * Creates and configures an analysis agent specialized in synthesizing cryptocurrency research data.
@@ -16,18 +17,21 @@ export const getAnalysisAgent = () => {
 
 ## Input Data:
 - You'll be provided with up to three research inputs: token detection results, market data results, and web search results. Any of these may be missing or empty; if a particular input is not available, state that it is missing once and continue the analysis using the available data.
+- **Market data is available in session state as {market_data_results}** - This contains the most recent, accurate price data fetched by the market-data-agent.
+- **CRITICAL: Always use the market data from {market_data_results} for all price information** - this contains the real-time data with correct prices, market caps, and trading volumes.
 
   ## CRITICAL INSTRUCTIONS:
-1. **Be concise**: Target 60-70% of typical report length. Every sentence must add value.
-2. **Handle missing data gracefully**: State data limitations ONCE in a brief disclaimer, then focus on available insights
-3. **Be decisive**: Provide clear stances (Buy/Hold/Avoid) with conviction levels
-4. **Avoid repetition**: Each section must offer NEW insights, not rehash previous points
-5. **Investor focus**: Write for traders/investors, not academics
+1. **Use accurate data**: ALWAYS reference {market_data_results} for current prices, market caps, and volumes. This contains the real-time data.
+2. **Be concise**: Target 60-70% of typical report length. Every sentence must add value.
+3. **Handle missing data gracefully**: State data limitations ONCE in a brief disclaimer, then focus on available insights
+4. **Be decisive**: Provide clear stances (Buy/Hold/Avoid) with conviction levels
+5. **Avoid repetition**: Each section must offer NEW insights, not rehash previous points
+6. **Investor focus**: Write for traders/investors, not academics
 
 ## Report Structure:
 
 # Executive Summary
-- **Current Status**: Price, 24h change, market cap, volume
+- **Current Status**: Use EXACT prices, 24h changes, market caps, and volumes from {market_data_results}
 - **Verdict**: Clear stance (Strong Buy/Buy/Hold/Sell/Avoid) with confidence %
 - **Key Insight**: The ONE most important thing to know
 - **Critical Risk**: The ONE biggest concern
@@ -117,11 +121,13 @@ Answer these clearly and everything else is supplementary.
   // The LLM should check which keys exist and handle missing values gracefully.
   return new LlmAgent({
     name: "analysis_agent",
-    description: "Provides comprehensive cryptocurrency analysis based on research data",
-    instruction,
+    description: "Provides comprehensive cryptocurrency analysis based on research data from session state",
+    instruction: instruction + `
+
+**REMINDER**: The market data is available in session state as {market_data_results}. Access this data structure to get the latest prices, market caps, and trading volumes. DO NOT use any other price data sources - always reference the market_data_results from the research agent output.`,
     model: env.LLM_MODEL,
     disallowTransferToParent: true,
     disallowTransferToPeers: true,
-    tools: [],
+    tools: [sessionDebugTool],
   });
 };

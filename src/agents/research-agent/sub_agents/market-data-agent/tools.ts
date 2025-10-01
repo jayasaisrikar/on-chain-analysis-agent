@@ -1,6 +1,7 @@
 import { createTool } from "@iqai/adk";
 import { z } from "zod";
 import { env } from "../../../../env";
+import { cacheMarketData, getCachedMarketData, type CachedMarketData } from "../../../../utils/market-data-cache";
 
 // Shared Coingecko cache with TTL (Time-To-Live)
 interface CacheEntry {
@@ -223,9 +224,33 @@ export const marketDataTool = createTool({
       // Remove duplicates and empty strings
       const uniqueTokens = [...new Set(tokens.filter(token => token.trim()))];
       
+      // Check cache first
+      const cachedData = getCachedMarketData(uniqueTokens);
+      if (cachedData) {
+        console.log(`[market-data] Using cached data for tokens: ${uniqueTokens.join(', ')}`);
+        return {
+          success: true,
+          marketData: cachedData.data,
+          cached: true,
+          structured_report: {
+            table: cachedData.data.map(md => ({
+              token: md.token,
+              price: md.price || 'N/A',
+              change_24h: md.change_24h || 'N/A',
+              market_cap: md.market_cap || 'N/A',
+              volume_24h: md.volume_24h || 'N/A'
+            })),
+            format_instructions: "Create a markdown table with this data and individual token sections with exact values"
+          },
+          source: "coingecko",
+          fetched_at: cachedData.lastUpdated,
+          started_at: started,
+        };
+      }
+      
       // Resolve token names/symbols to CoinGecko ids
       const idMap = await resolveCoinGeckoIds(uniqueTokens);
-      const marketData: Array<Record<string, any>> = [];
+      const marketData: CachedMarketData[] = [];
 
       const foundIds = Object.values(idMap).filter(Boolean) as string[];
       
@@ -234,11 +259,15 @@ export const marketDataTool = createTool({
         const endpoint = `https://api.coingecko.com/api/v3/simple/price?ids=${idsParam}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true`;
         
         const bulk = await coingeckoFetchRaw(endpoint);
+        console.log('[market-data] Bulk API response:', JSON.stringify(bulk, null, 2));
+        console.log('[market-data] ID Map:', idMap);
 
         for (const original of uniqueTokens) {
           const id = idMap[original];
+          console.log(`[market-data] Processing token: ${original}, resolved ID: ${id}, has data: ${!!(id && bulk && bulk[id])}`);
           
           if (id && bulk && bulk[id]) {
+            console.log(`[market-data] Data for ${id}:`, bulk[id]);
             marketData.push({
               token: original,
               id,
@@ -274,9 +303,28 @@ export const marketDataTool = createTool({
         }
       }
 
+      console.log('[market-data] Final marketData being returned:', JSON.stringify(marketData, null, 2));
+      cacheMarketData(uniqueTokens.join(' '), uniqueTokens, marketData);
+
+      // Create a structured data report to ensure consistent formatting
+      const tableData = marketData.map(md => {
+        return {
+          token: md.token,
+          price: md.price || 'N/A',
+          change_24h: md.change_24h || 'N/A',
+          market_cap: md.market_cap || 'N/A',
+          volume_24h: md.volume_24h || 'N/A'
+        };
+      });
+      
+      // Add a structured_report field to help the LLM correctly format the output
       return {
         success: true,
         marketData,
+        structured_report: {
+          table: tableData,
+          format_instructions: "Create a markdown table with this data and individual token sections with exact values"
+        },
         source: "coingecko",
         fetched_at: new Date().toISOString(),
         started_at: started,
