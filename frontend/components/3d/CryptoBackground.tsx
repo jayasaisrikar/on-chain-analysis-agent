@@ -1,214 +1,367 @@
 'use client'
 
-import React, { useMemo, useRef, useCallback } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Float, Sphere, MeshDistortMaterial, Environment, OrbitControls } from '@react-three/drei'
+import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 
-// Floating crypto symbols component
-function CryptoSymbols() {
-  const symbolsRef = useRef<THREE.Group>(null)
-  
-  const symbols = useMemo(() => {
-    const cryptoIcons = ['₿', '♦', '◊', '●', '◎', '◉', '⬟', '⬢']
-    return Array.from({ length: 30 }, (_, i) => ({
-      id: i,
-      symbol: cryptoIcons[Math.floor(Math.random() * cryptoIcons.length)],
-      position: [
-        (Math.random() - 0.5) * 50,
-        (Math.random() - 0.5) * 30,
-        (Math.random() - 0.5) * 50
-      ] as [number, number, number],
-      scale: 0.5 + Math.random() * 1.5,
-      speed: 0.5 + Math.random() * 2,
-    }))
-  }, [])
+interface HyperspeedOptions {
+  length: number
+  roadWidth: number
+  islandWidth: number
+  lanesPerRoad: number
+  fov: number
+  fovSpeedUp: number
+  speedUp: number
+  carLightsFade: number
+  totalSideLightSticks: number
+  lightPairsPerRoadWay: number
+  carLightsLength: [number, number]
+  carLightsRadius: [number, number]
+  carWidthPercentage: [number, number]
+  carShiftX: [number, number]
+  carFloorSeparation: [number, number]
+  movingAwaySpeed: [number, number]
+  movingCloserSpeed: [number, number]
+  colors: {
+    roadColor: number
+    islandColor: number
+    background: number
+    shoulderLines: number
+    brokenLines: number
+    leftCars: number[]
+    rightCars: number[]
+    sticks: number
+  }
+}
 
-  useFrame((state) => {
-    if (symbolsRef.current) {
-      symbolsRef.current.rotation.y += 0.001
-      symbolsRef.current.children.forEach((child, i) => {
-        child.position.y += Math.sin(state.clock.elapsedTime * symbols[i].speed) * 0.01
-        child.rotation.z += 0.005
+const defaultOptions: HyperspeedOptions = {
+  length: 400,
+  roadWidth: 9,
+  islandWidth: 2,
+  lanesPerRoad: 3,
+  fov: 90,
+  fovSpeedUp: 150,
+  speedUp: 2.5,
+  carLightsFade: 0.4,
+  totalSideLightSticks: 50,
+  lightPairsPerRoadWay: 80,
+  carLightsLength: [20, 80],
+  carLightsRadius: [0.05, 0.14],
+  carWidthPercentage: [0.3, 0.5],
+  carShiftX: [-0.2, 0.2],
+  carFloorSeparation: [0, 0.15],
+  movingAwaySpeed: [60, 100],
+  movingCloserSpeed: [-120, -200],
+  colors: {
+    roadColor: 0x0a0a0a,
+    islandColor: 0x0f0f0f,
+    background: 0x000000,
+    shoulderLines: 0x222222,
+    brokenLines: 0x222222,
+    leftCars: [0xff006e, 0xff0080, 0xff1744, 0xe91e63],
+    rightCars: [0x00d9ff, 0x00e4ff, 0x06b6d4, 0x0ea5e9],
+    sticks: 0x06b6d4
+  }
+}
+
+const random = (base: number | [number, number]) =>
+  Array.isArray(base) ? Math.random() * (base[1] - base[0]) + base[0] : Math.random() * base
+
+const pickRandom = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)]
+
+const lerp = (a: number, b: number, t = 0.1) => a + (b - a) * t
+
+class HyperspeedApp {
+  container: HTMLElement
+  options: HyperspeedOptions
+  renderer: THREE.WebGLRenderer
+  camera: THREE.PerspectiveCamera
+  scene: THREE.Scene
+  clock: THREE.Clock
+  disposed = false
+  fovTarget: number
+  speedUpTarget = 0
+  speedUp = 0
+  timeOffset = 0
+  animationId: number | null = null
+  leftLights = new THREE.Group()
+  rightLights = new THREE.Group()
+  leftSticks = new THREE.Group()
+  rightSticks = new THREE.Group()
+  mouse = { x: 0, y: 0, targetX: 0, targetY: 0 }
+  cameraShake = 0
+
+  constructor(container: HTMLElement, options: HyperspeedOptions) {
+    this.container = container
+    this.options = options
+    this.fovTarget = options.fov
+
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance'
+    })
+    this.renderer.setSize(container.offsetWidth, container.offsetHeight)
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    container.appendChild(this.renderer.domElement)
+
+    this.camera = new THREE.PerspectiveCamera(
+      options.fov,
+      container.offsetWidth / container.offsetHeight,
+      0.1,
+      10000
+    )
+    this.camera.position.set(0, 8, -5)
+
+    this.scene = new THREE.Scene()
+    this.scene.background = new THREE.Color(options.colors.background)
+    this.scene.fog = new THREE.FogExp2(options.colors.background, 0.005)
+
+    this.clock = new THREE.Clock()
+
+    this.createRoad()
+    this.createCarLights()
+    this.createSideSticks()
+    this.createParticles()
+    this.setupEventListeners()
+    this.tick()
+  }
+
+  private addPlane(w: number, h: number, color: number, x = 0) {
+    const geo = new THREE.PlaneGeometry(w, h, 40, 400)
+    const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.rotation.x = -Math.PI / 2
+    mesh.position.set(x, 0, -this.options.length / 2)
+    this.scene.add(mesh)
+    return mesh
+  }
+
+  private createRoad() {
+    const { roadWidth, islandWidth, colors, lanesPerRoad } = this.options
+    const leftRoad = this.addPlane(roadWidth, this.options.length, colors.roadColor, -(roadWidth / 2 + islandWidth / 2))
+    const rightRoad = this.addPlane(roadWidth, this.options.length, colors.roadColor, roadWidth / 2 + islandWidth / 2)
+    this.addPlane(islandWidth, this.options.length, colors.islandColor)
+    this.createLaneMarkers(leftRoad.position.x, roadWidth, lanesPerRoad)
+    this.createLaneMarkers(rightRoad.position.x, roadWidth, lanesPerRoad)
+  }
+
+  private createLaneMarkers(roadX: number, roadWidth: number, lanes: number) {
+    const { brokenLines } = this.options.colors
+    const laneWidth = roadWidth / lanes
+    for (let lane = 1; lane < lanes; lane++) {
+      const x = roadX - roadWidth / 2 + lane * laneWidth
+      for (let z = 0; z > -this.options.length; z -= 9) {
+        const geo = new THREE.PlaneGeometry(0.15, 3)
+        const mat = new THREE.MeshBasicMaterial({ color: brokenLines, side: THREE.DoubleSide })
+        const marker = new THREE.Mesh(geo, mat)
+        marker.rotation.x = -Math.PI / 2
+        marker.position.set(x, 0.02, z)
+        this.scene.add(marker)
+      }
+    }
+  }
+
+  private createCarLights() {
+    const { lanesPerRoad, roadWidth, islandWidth, carLightsRadius, carLightsLength, carShiftX, carFloorSeparation } = this.options
+    const laneWidth = roadWidth / lanesPerRoad
+
+    const makeLights = (count: number, colorSet: number[], speedRange: [number, number], side: 'left' | 'right') => {
+      for (let i = 0; i < count; i++) {
+        const radius = random(carLightsRadius)
+        const length = random(carLightsLength)
+        const speed = random(speedRange)
+        const lane = Math.floor(Math.random() * lanesPerRoad)
+        let laneX = lane * laneWidth - roadWidth / 2 + laneWidth / 2 + random(carShiftX) * laneWidth
+        const offsetY = random(carFloorSeparation) + radius * 2
+        const startZ = -random(this.options.length)
+        const color = new THREE.Color(pickRandom(colorSet))
+        for (let j = 0; j < 2; j++) {
+          const xOffset = j === 0 ? -0.25 : 0.25
+          const geo = new THREE.CylinderGeometry(radius, radius * 0.5, length, 8)
+          const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: side === 'left' ? 0.9 : 1 })
+          const light = new THREE.Mesh(geo, mat)
+          light.rotation.x = Math.PI / 2
+          light.position.set(
+            (side === 'left' ? -(roadWidth / 2 + islandWidth / 2) : roadWidth / 2 + islandWidth / 2) + laneX + xOffset,
+            offsetY,
+            startZ
+          )
+          const point = new THREE.PointLight(color, side === 'left' ? 0.5 : 0.8, side === 'left' ? 3 : 4)
+          point.position.copy(light.position)
+          ;(light as any).speed = speed
+          ;(light as any).startZ = startZ
+          ;(light as any).pointLight = point
+          ;(side === 'left' ? this.leftLights : this.rightLights).add(light)
+          this.scene.add(point)
+        }
+      }
+    }
+
+    makeLights(this.options.lightPairsPerRoadWay, this.options.colors.leftCars, this.options.movingAwaySpeed, 'left')
+    makeLights(this.options.lightPairsPerRoadWay, this.options.colors.rightCars, this.options.movingCloserSpeed, 'right')
+
+    this.scene.add(this.leftLights, this.rightLights)
+  }
+
+  private createSideSticks() {
+    const { totalSideLightSticks, length, roadWidth, islandWidth, colors } = this.options
+    const stickW = 0.12, stickH = 1.8, spacing = length / totalSideLightSticks
+    const color = new THREE.Color(colors.sticks)
+
+    const makeSticks = (side: 'left' | 'right') => {
+      for (let i = 0; i < totalSideLightSticks; i++) {
+        const geo = new THREE.BoxGeometry(stickW, stickH, stickW)
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 })
+        const stick = new THREE.Mesh(geo, mat)
+        const z = -i * spacing
+        stick.position.set((side === 'left' ? -(roadWidth + islandWidth / 2 + 0.6) : roadWidth + islandWidth / 2 + 0.6), stickH / 2, z)
+        const topLight = new THREE.PointLight(color, 0.3, 2)
+        topLight.position.set(stick.position.x, stickH, stick.position.z)
+        this.scene.add(topLight)
+        ;(stick as any).startZ = z
+        ;(stick as any).topLight = topLight
+        ;(side === 'left' ? this.leftSticks : this.rightSticks).add(stick)
+      }
+    }
+
+    makeSticks('left')
+    makeSticks('right')
+    this.scene.add(this.leftSticks, this.rightSticks)
+  }
+
+  private createParticles() {
+    const count = 200
+    const pos = new Float32Array(count * 3)
+    const col = new Float32Array(count * 3)
+    for (let i = 0; i < count; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * 50
+      pos[i * 3 + 1] = Math.random() * 20
+      pos[i * 3 + 2] = -Math.random() * this.options.length
+      const c = new THREE.Color(pickRandom(Math.random() > 0.5 ? this.options.colors.leftCars : this.options.colors.rightCars))
+      col[i * 3] = c.r
+      col[i * 3 + 1] = c.g
+      col[i * 3 + 2] = c.b
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    const mat = new THREE.PointsMaterial({ size: 0.1, vertexColors: true, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending })
+    const particles = new THREE.Points(geo, mat)
+    particles.userData.isParticles = true
+    this.scene.add(particles)
+  }
+
+  private setupEventListeners() {
+    const speedUp = () => { this.fovTarget = this.options.fovSpeedUp; this.speedUpTarget = this.options.speedUp; this.cameraShake = 0.5 }
+    const slowDown = () => { this.fovTarget = this.options.fov; this.speedUpTarget = 0; this.cameraShake = 0 }
+    this.container.addEventListener('mousedown', speedUp)
+    this.container.addEventListener('mouseup', slowDown)
+    this.container.addEventListener('mousemove', e => {
+      this.mouse.targetX = (e.clientX / this.container.offsetWidth) * 2 - 1
+      this.mouse.targetY = -(e.clientY / this.container.offsetHeight) * 2 + 1
+    })
+    this.container.addEventListener('touchstart', speedUp, { passive: true })
+    this.container.addEventListener('touchend', slowDown, { passive: true })
+    window.addEventListener('resize', () => {
+      const w = this.container.offsetWidth, h = this.container.offsetHeight
+      this.camera.aspect = w / h
+      this.camera.updateProjectionMatrix()
+      this.renderer.setSize(w, h)
+    })
+  }
+
+  private update(delta: number) {
+    const t = Math.min(delta * 5, 1)
+    this.speedUp = lerp(this.speedUp, this.speedUpTarget, t)
+    this.timeOffset += this.speedUp * delta
+    const time = this.clock.elapsedTime + this.timeOffset
+
+    this.camera.fov = lerp(this.camera.fov, this.fovTarget, t)
+    this.camera.updateProjectionMatrix()
+
+    this.mouse.x = lerp(this.mouse.x, this.mouse.targetX, 0.1)
+    this.mouse.y = lerp(this.mouse.y, this.mouse.targetY, 0.1)
+
+    this.cameraShake = lerp(this.cameraShake, 0, 0.1)
+    const shakeX = (Math.random() - 0.5) * this.cameraShake * 0.2
+    const shakeY = (Math.random() - 0.5) * this.cameraShake * 0.2
+    this.camera.position.set(this.mouse.x * 2 + shakeX, 8 + Math.sin(time * 0.5) * 0.3 + this.mouse.y + shakeY, -5)
+    this.camera.lookAt(0, 7 + this.mouse.y * 2, -100)
+
+    const updateLights = (lights: THREE.Group, deltaZ: number, resetCheck: (z: number) => boolean) => {
+      lights.children.forEach((light: any) => {
+        light.position.z += deltaZ
+        if (light.pointLight) {
+          light.pointLight.position.copy(light.position)
+          if (lights === this.rightLights) {
+            const factor = Math.max(0, 1 - (-light.position.z / this.options.length))
+            light.pointLight.intensity = 0.8 + factor * 1.5
+          }
+        }
+        if (resetCheck(light.position.z)) light.position.z = light.startZ
       })
     }
-  })
 
-  return (
-    <group ref={symbolsRef}>
-      {symbols.map((item, i) => (
-        <Float
-          key={item.id}
-          speed={item.speed}
-          rotationIntensity={0.2}
-          floatIntensity={0.5}
-        >
-          <mesh position={item.position} scale={item.scale}>
-            <planeGeometry args={[2, 2]} />
-            <meshBasicMaterial 
-              transparent 
-              opacity={0.1} 
-              color={new THREE.Color().setHSL(0.6 + Math.random() * 0.4, 0.8, 0.7)}
-            />
-          </mesh>
-        </Float>
-      ))}
-    </group>
-  )
+    updateLights(this.leftLights, (60 + this.speedUp * 20) * delta, z => z > 20)
+    updateLights(this.rightLights, (-120 - this.speedUp * 30) * delta, z => z < -this.options.length - 20)
+
+    const stickSpeed = (60 + this.speedUp * 40) * delta
+    ;[this.leftSticks, this.rightSticks].forEach(group => {
+      group.children.forEach((stick: any) => {
+        stick.position.z += stickSpeed
+        if (stick.topLight) stick.topLight.position.z = stick.position.z
+        if (stick.position.z > 20) stick.position.z = stick.startZ
+      })
+    })
+
+    this.scene.children.forEach((child: any) => {
+      if (child.userData.isParticles) {
+        const pos = child.geometry.attributes.position
+        for (let i = 0; i < pos.count; i++) {
+          pos.array[i * 3 + 2] += (50 + this.speedUp * 30) * delta
+          if (pos.array[i * 3 + 2] > 20) pos.array[i * 3 + 2] = -this.options.length
+        }
+        pos.needsUpdate = true
+      }
+    })
+  }
+
+  private tick = () => {
+    if (this.disposed) return
+    this.update(this.clock.getDelta())
+    this.renderer.render(this.scene, this.camera)
+    this.animationId = requestAnimationFrame(this.tick)
+  }
+
+  dispose() {
+    this.disposed = true
+    if (this.animationId) cancelAnimationFrame(this.animationId)
+    this.renderer.dispose()
+    this.scene.clear()
+    if (this.container.contains(this.renderer.domElement)) {
+      this.container.removeChild(this.renderer.domElement)
+    }
+  }
 }
 
-// Interactive particle field
-function ParticleField() {
-  const meshRef = useRef<THREE.Points>(null)
-  const mouseRef = useRef({ x: 0, y: 0 })
-  
-  const { viewport, mouse } = useThree()
-  
-  const particlesGeometry = useMemo(() => {
-    const particles = new Float32Array(2000 * 3)
-    const colors = new Float32Array(2000 * 3)
-    
-    for (let i = 0; i < 2000; i++) {
-      const i3 = i * 3
-      // Position
-      particles[i3] = (Math.random() - 0.5) * 100
-      particles[i3 + 1] = (Math.random() - 0.5) * 100  
-      particles[i3 + 2] = (Math.random() - 0.5) * 100
-      
-      // Colors - crypto-themed gradient
-      const hue = 0.6 + Math.random() * 0.4 // Blue to purple range
-      const color = new THREE.Color().setHSL(hue, 0.8, 0.7)
-      colors[i3] = color.r
-      colors[i3 + 1] = color.g
-      colors[i3 + 2] = color.b
+export default function CryptoBackground() {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const appRef = useRef<HyperspeedApp | null>(null)
+
+  useEffect(() => {
+    if (containerRef.current) {
+      appRef.current = new HyperspeedApp(containerRef.current, defaultOptions)
     }
-    
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.BufferAttribute(particles, 3))
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-    return geometry
+    return () => {
+      appRef.current?.dispose()
+      appRef.current = null
+    }
   }, [])
 
-  useFrame((state) => {
-    if (meshRef.current) {
-      const positions = meshRef.current.geometry.attributes.position
-      
-      // Mouse interaction effect
-      mouseRef.current.x = THREE.MathUtils.lerp(mouseRef.current.x, mouse.x * viewport.width, 0.1)
-      mouseRef.current.y = THREE.MathUtils.lerp(mouseRef.current.y, mouse.y * viewport.height, 0.1)
-      
-      // Animate particles
-      for (let i = 0; i < positions.count; i++) {
-        const i3 = i * 3
-        const x = positions.array[i3]
-        const y = positions.array[i3 + 1]
-        
-        // Distance from mouse influence
-        const distance = Math.sqrt((x - mouseRef.current.x) ** 2 + (y - mouseRef.current.y) ** 2)
-        const force = Math.max(0, 1 - distance / 20)
-        
-        positions.array[i3] += Math.sin(state.clock.elapsedTime + i * 0.01) * 0.01 + force * 0.1
-        positions.array[i3 + 1] += Math.cos(state.clock.elapsedTime + i * 0.01) * 0.01 + force * 0.1
-        positions.array[i3 + 2] += Math.sin(state.clock.elapsedTime * 0.5 + i * 0.02) * 0.005
-      }
-      
-      positions.needsUpdate = true
-      
-      // Rotate the entire system slowly
-      meshRef.current.rotation.y += 0.0005
-    }
-  })
-
-  return (
-    <points ref={meshRef} geometry={particlesGeometry}>
-      <pointsMaterial 
-        size={0.8} 
-        transparent 
-        opacity={0.6}
-        vertexColors
-        sizeAttenuation
-        blending={THREE.AdditiveBlending}
-      />
-    </points>
-  )
-}
-
-// Animated distortion sphere
-function DistortionSphere() {
-  const sphereRef = useRef<THREE.Mesh>(null)
-  
-  useFrame((state) => {
-    if (sphereRef.current) {
-      sphereRef.current.rotation.x = state.clock.elapsedTime * 0.1
-      sphereRef.current.rotation.y = state.clock.elapsedTime * 0.15
-    }
-  })
-
-  return (
-    <Float speed={1} rotationIntensity={0.1} floatIntensity={0.2}>
-      <Sphere ref={sphereRef} args={[8, 64, 64]} position={[0, 0, -20]}>
-        <MeshDistortMaterial
-          color="#3b82f6"
-          transparent
-          opacity={0.15}
-          distort={0.4}
-          speed={2}
-          roughness={0}
-        />
-      </Sphere>
-    </Float>
-  )
-}
-
-// Main component
-export default function CryptoBackground() {
   return (
     <div className="fixed inset-0 -z-10">
-      <Canvas
-        camera={{ 
-          position: [0, 0, 20], 
-          fov: 50,
-          near: 0.1,
-          far: 1000
-        }}
-        gl={{ 
-          antialias: true,
-          alpha: true,
-          powerPreference: "high-performance"
-        }}
-        dpr={[1, 2]}
-      >
-        {/* Lighting setup */}
-        <ambientLight intensity={0.4} />
-        <pointLight position={[10, 10, 10]} intensity={0.8} color="#60a5fa" />
-        <pointLight position={[-10, -10, -10]} intensity={0.5} color="#a855f7" />
-        
-        {/* Environment for reflections */}
-        <Environment preset="city" />
-        
-        {/* Interactive elements */}
-        <ParticleField />
-        <DistortionSphere />
-        <CryptoSymbols />
-        
-        {/* Camera controls - subtle movement only */}
-        <OrbitControls 
-          enableZoom={false}
-          enablePan={false}
-          enableDamping
-          dampingFactor={0.05}
-          maxPolarAngle={Math.PI / 2}
-          minPolarAngle={Math.PI / 2}
-          autoRotate
-          autoRotateSpeed={0.2}
-        />
-      </Canvas>
-      
-      {/* Gradient overlay for better readability */}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-base-950/60 pointer-events-none" />
-      
-      {/* Noise texture overlay */}
-      <div className="absolute inset-0 opacity-[0.015] mix-blend-overlay pointer-events-none bg-noise" />
+      <div ref={containerRef} className="w-full h-full" />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/50 pointer-events-none" />
     </div>
   )
 }
