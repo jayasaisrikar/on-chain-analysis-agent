@@ -1,6 +1,6 @@
 "use client";
-// Orchestrator component (clean refactored version)
-import { useState, useCallback, useEffect, useMemo } from 'react';
+// Orchestrator component with scroll animations
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { MarketStatusBar } from './dashboard/MarketStatusBar';
 import { HeroHeader } from './dashboard/HeroHeader';
 import { QueryInput } from './dashboard/QueryInput';
@@ -21,6 +21,69 @@ interface CryptoDashboardProps {
   appConfig?: Partial<AppConfig>;
 }
 
+// Custom hook for scroll animations
+function useScrollAnimation() {
+  const [visibleSections, setVisibleSections] = useState<Set<string>>(new Set());
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sectionsRef = useRef<Map<string, HTMLElement>>(new Map());
+
+  useEffect(() => {
+    // Prevent scroll restoration on page load
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+
+    // Ensure page starts at top
+    window.scrollTo(0, 0);
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const sectionId = entry.target.getAttribute('data-section');
+          if (!sectionId) return;
+
+          setVisibleSections((prev) => {
+            const newSet = new Set(prev);
+            if (entry.isIntersecting) {
+              newSet.add(sectionId);
+            } else {
+              newSet.delete(sectionId);
+            }
+            return newSet;
+          });
+        });
+      },
+      {
+        threshold: 0.1,
+        rootMargin: '-10% 0px -10% 0px'
+      }
+    );
+
+    // Observe all registered sections
+    sectionsRef.current.forEach((element) => {
+      if (observerRef.current) {
+        observerRef.current.observe(element);
+      }
+    });
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  const registerSection = useCallback((id: string) => (element: HTMLElement | null) => {
+    if (!element) return;
+    sectionsRef.current.set(id, element);
+    if (observerRef.current) {
+      observerRef.current.observe(element);
+    }
+  }, []);
+
+  return { visibleSections, registerSection };
+}
+
 export default function CryptoDashboard({ appConfig = {} }: CryptoDashboardProps) {
   const appConfiguration = { ...defaultAppConfig, ...appConfig };
   const { config, isConfigured, getAPIKeysForRequest } = useAPIConfig();
@@ -31,6 +94,12 @@ export default function CryptoDashboard({ appConfig = {} }: CryptoDashboardProps
   const [input, setInput] = useState('Provide analysis for DOGE and LOKA.');
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
+  const { visibleSections, registerSection } = useScrollAnimation();
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const timelineEvents: StepEvent[] = useMemo(() => {
     return (events as any[]).filter(e => e && e.id && e.agent && e.message && e.type && e.ts);
@@ -69,7 +138,6 @@ export default function CryptoDashboard({ appConfig = {} }: CryptoDashboardProps
   const runAnalysis = useCallback(() => {
     if (!input.trim()) return;
     
-    // Check if we should use environment keys or if user keys are configured
     const useEnvKeys = shouldUseEnvKeys(appConfiguration, isConfigured);
     
     console.log('Analysis Config:', { 
@@ -97,38 +165,116 @@ export default function CryptoDashboard({ appConfig = {} }: CryptoDashboardProps
   }, [clear]);
 
   return (
-    <div className="min-h-screen relative">
-      <APISetupNotification />
-      <MarketStatusBar appConfig={appConfiguration} />
-      <div className={`container mx-auto px-6 space-y-4 max-w-7xl transition-all duration-300 ${!isConfigured ? 'pt-8 pb-8' : 'pt-4 pb-8'}`}>
-        <HeroHeader />
-        <QueryInput
-          input={input}
-          setInput={setInput}
-          loading={loading}
-          hasMessages={messages.length > 0}
-          onRun={runAnalysis}
-          onClear={clearAll}
-        />
-        <div className="space-y-8">
-          <div className="grid lg:grid-cols-2 gap-8">
-            <ChatPanel messages={messages} loading={loading} typingEffect={typingEffect} />
+    <div className="min-h-screen relative overflow-x-hidden">
+      {/* Navbar - Fixed, always visible */}
+      <div className={`sticky top-0 z-50 transition-opacity duration-500 ${isMounted ? 'opacity-100' : 'opacity-0'}`}>
+        <APISetupNotification />
+        <MarketStatusBar appConfig={appConfiguration} />
+      </div>
+      
+      <div className={`container mx-auto px-6 space-y-16 max-w-7xl transition-all duration-300 ${!isConfigured ? 'pt-8 pb-16' : 'pt-4 pb-16'}`}>
+        {/* Hero Section */}
+        <section
+          ref={registerSection('hero')}
+          data-section="hero"
+          className={`transition-all duration-700 ease-out will-change-transform ${
+            visibleSections.has('hero')
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 translate-y-12'
+          }`}
+        >
+          <HeroHeader />
+        </section>
+
+        {/* Query Input Section */}
+        <section
+          ref={registerSection('query')}
+          data-section="query"
+          className={`transition-all duration-700 ease-out will-change-transform ${
+            visibleSections.has('query')
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 translate-y-12'
+          }`}
+          style={{ transitionDelay: visibleSections.has('query') ? '100ms' : '0ms' }}
+        >
+          <QueryInput
+            input={input}
+            setInput={setInput}
+            loading={loading}
+            hasMessages={messages.length > 0}
+            onRun={runAnalysis}
+            onClear={clearAll}
+          />
+        </section>
+
+        {/* Chat Panel Section */}
+        <section
+          ref={registerSection('chat')}
+          data-section="chat"
+          className={`transition-all duration-700 ease-out will-change-transform ${
+            visibleSections.has('chat')
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 translate-y-12'
+          }`}
+          style={{ transitionDelay: visibleSections.has('chat') ? '100ms' : '0ms' }}
+        >
+          <ChatPanel messages={messages} loading={loading} typingEffect={typingEffect} />
+        </section>
+
+        {/* Agent & Report Section - Grouped together */}
+        <section
+          ref={registerSection('analysis')}
+          data-section="analysis"
+          className="space-y-8"
+        >
+          <div 
+            className={`transition-all duration-700 ease-out will-change-transform ${
+              visibleSections.has('analysis')
+                ? 'opacity-100 translate-y-0'
+                : 'opacity-0 translate-y-12'
+            }`}
+            style={{ transitionDelay: visibleSections.has('analysis') ? '100ms' : '0ms' }}
+          >
             <AgentExecutionPanel events={timelineEvents} loading={loading} />
           </div>
-          <AnalysisReportPanel
-            report={report}
+          
+          <div 
+            className={`transition-all duration-700 ease-out will-change-transform ${
+              visibleSections.has('analysis')
+                ? 'opacity-100 translate-y-0'
+                : 'opacity-0 translate-y-12'
+            }`}
+            style={{ transitionDelay: visibleSections.has('analysis') ? '100ms' : '0ms' }}
+          >
+            <AnalysisReportPanel
+              report={report}
+              loading={loading}
+              copied={copied}
+              onCopy={copyReport}
+              onDownload={downloadReport}
+            />
+          </div>
+        </section>
+
+        {/* Footer Section */}
+        <section
+          ref={registerSection('footer')}
+          data-section="footer"
+          className={`transition-all duration-700 ease-out will-change-transform ${
+            visibleSections.has('footer')
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 translate-y-12'
+          }`}
+          style={{ transitionDelay: visibleSections.has('footer') ? '100ms' : '0ms' }}
+        >
+          <StatusFooter
+            eventsCount={timelineEvents.length}
+            messagesCount={messages.length}
             loading={loading}
-            copied={copied}
-            onCopy={copyReport}
-            onDownload={downloadReport}
           />
-        </div>
-        <StatusFooter
-          eventsCount={timelineEvents.length}
-          messagesCount={messages.length}
-          loading={loading}
-        />
+        </section>
       </div>
+
       <ToastNotice toast={toast} />
     </div>
   );
