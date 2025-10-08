@@ -30,6 +30,17 @@ export function useStreamingAnalysis(opts: UseStreamingOptions = {}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [events, setEvents] = useState<StepEvent[]>([]);
   const [report, setReport] = useState('');
+  // persist session id in localStorage so follow-ups survive reloads
+  const STORAGE_KEY = 'adk_session_id';
+  // initialize sessionId state from localStorage so follow-ups survive reloads and page reloads
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    try {
+      const v = localStorage.getItem(STORAGE_KEY);
+      return v || null;
+    } catch (err) {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [typingEffect, setTypingEffect] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -49,7 +60,9 @@ export function useStreamingAnalysis(opts: UseStreamingOptions = {}) {
 
     let streamedReport = '';
     try {
-      const res = await fetch('/api/analyze', { method: 'POST', body: JSON.stringify({ question: input, apiKeys: opts.apiKeys }), headers: { 'Content-Type': 'application/json' }, signal: controller.signal });
+      const body: any = { question: input, apiKeys: opts.apiKeys };
+      if (sessionId) body.sessionId = sessionId;
+      const res = await fetch('/api/analyze', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, signal: controller.signal });
       if (!res.body) throw new Error('No stream');
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -68,6 +81,12 @@ export function useStreamingAnalysis(opts: UseStreamingOptions = {}) {
               if (evt.type === 'report') {
                 streamedReport += evt.data;
                 setReport(streamedReport);
+              } else if (evt.type === 'session') {
+                // server may send session metadata
+                if (evt.data?.sessionId) {
+                  setSessionId(evt.data.sessionId);
+                  try { localStorage.setItem(STORAGE_KEY, evt.data.sessionId); } catch {}
+                }
               } else {
                 setEvents(e => [...e, evt]);
               }
@@ -103,5 +122,10 @@ export function useStreamingAnalysis(opts: UseStreamingOptions = {}) {
     setReport('');
   }, []);
 
-  return { messages, events, report, loading, typingEffect, run, stop, clear };
+  const clearSession = useCallback(() => {
+    try { localStorage.removeItem('adk_session_id'); } catch {}
+    setSessionId(null);
+  }, []);
+
+  return { messages, events, report, loading, typingEffect, run, stop, clear, sessionId, clearSession };
 }

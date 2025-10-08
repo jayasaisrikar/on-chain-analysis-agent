@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 
 interface HyperspeedOptions {
@@ -89,6 +89,8 @@ class HyperspeedApp {
   rightSticks = new THREE.Group()
   mouse = { x: 0, y: 0, targetX: 0, targetY: 0 }
   cameraShake = 0
+  scrollY = 0
+  scrollTarget = 0
 
   constructor(container: HTMLElement, options: HyperspeedOptions) {
     this.container = container
@@ -126,6 +128,10 @@ class HyperspeedApp {
     this.tick()
   }
 
+  setScroll(value: number) {
+    this.scrollTarget = value
+  }
+
   private addPlane(w: number, h: number, color: number, x = 0) {
     const geo = new THREE.PlaneGeometry(w, h, 40, 400)
     const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
@@ -138,27 +144,9 @@ class HyperspeedApp {
 
   private createRoad() {
     const { roadWidth, islandWidth, colors, lanesPerRoad } = this.options
-    const leftRoad = this.addPlane(roadWidth, this.options.length, colors.roadColor, -(roadWidth / 2 + islandWidth / 2))
-    const rightRoad = this.addPlane(roadWidth, this.options.length, colors.roadColor, roadWidth / 2 + islandWidth / 2)
+    this.addPlane(roadWidth, this.options.length, colors.roadColor, -(roadWidth / 2 + islandWidth / 2))
+    this.addPlane(roadWidth, this.options.length, colors.roadColor, roadWidth / 2 + islandWidth / 2)
     this.addPlane(islandWidth, this.options.length, colors.islandColor)
-    this.createLaneMarkers(leftRoad.position.x, roadWidth, lanesPerRoad)
-    this.createLaneMarkers(rightRoad.position.x, roadWidth, lanesPerRoad)
-  }
-
-  private createLaneMarkers(roadX: number, roadWidth: number, lanes: number) {
-    const { brokenLines } = this.options.colors
-    const laneWidth = roadWidth / lanes
-    for (let lane = 1; lane < lanes; lane++) {
-      const x = roadX - roadWidth / 2 + lane * laneWidth
-      for (let z = 0; z > -this.options.length; z -= 9) {
-        const geo = new THREE.PlaneGeometry(0.15, 3)
-        const mat = new THREE.MeshBasicMaterial({ color: brokenLines, side: THREE.DoubleSide })
-        const marker = new THREE.Mesh(geo, mat)
-        marker.rotation.x = -Math.PI / 2
-        marker.position.set(x, 0.02, z)
-        this.scene.add(marker)
-      }
-    }
   }
 
   private createCarLights() {
@@ -191,6 +179,7 @@ class HyperspeedApp {
           ;(light as any).speed = speed
           ;(light as any).startZ = startZ
           ;(light as any).pointLight = point
+          ;(light as any).parallaxFactor = side === 'left' ? 0.3 : 0.5
           ;(side === 'left' ? this.leftLights : this.rightLights).add(light)
           this.scene.add(point)
         }
@@ -220,6 +209,7 @@ class HyperspeedApp {
         this.scene.add(topLight)
         ;(stick as any).startZ = z
         ;(stick as any).topLight = topLight
+        ;(stick as any).parallaxFactor = 0.6
         ;(side === 'left' ? this.leftSticks : this.rightSticks).add(stick)
       }
     }
@@ -248,6 +238,7 @@ class HyperspeedApp {
     const mat = new THREE.PointsMaterial({ size: 0.1, vertexColors: true, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending })
     const particles = new THREE.Points(geo, mat)
     particles.userData.isParticles = true
+    particles.userData.parallaxFactor = 0.8
     this.scene.add(particles)
   }
 
@@ -276,7 +267,9 @@ class HyperspeedApp {
     this.timeOffset += this.speedUp * delta
     const time = this.clock.elapsedTime + this.timeOffset
 
-    this.camera.fov = lerp(this.camera.fov, this.fovTarget, t)
+    this.scrollY = lerp(this.scrollY, this.scrollTarget, 0.08)
+
+    this.camera.fov = lerp(this.camera.fov, this.fovTarget + this.scrollY * 20, t)
     this.camera.updateProjectionMatrix()
 
     this.mouse.x = lerp(this.mouse.x, this.mouse.targetX, 0.1)
@@ -285,17 +278,31 @@ class HyperspeedApp {
     this.cameraShake = lerp(this.cameraShake, 0, 0.1)
     const shakeX = (Math.random() - 0.5) * this.cameraShake * 0.2
     const shakeY = (Math.random() - 0.5) * this.cameraShake * 0.2
-    this.camera.position.set(this.mouse.x * 2 + shakeX, 8 + Math.sin(time * 0.5) * 0.3 + this.mouse.y + shakeY, -5)
-    this.camera.lookAt(0, 7 + this.mouse.y * 2, -100)
+    
+    const parallaxY = this.scrollY * 8
+    const parallaxZ = this.scrollY * 15
+    const parallaxRotation = this.scrollY * 0.3
+    
+    this.camera.position.set(
+      this.mouse.x * 2 + shakeX + Math.sin(this.scrollY * 2) * 2, 
+      8 + Math.sin(time * 0.5) * 0.3 + this.mouse.y + shakeY + parallaxY, 
+      -5 + parallaxZ
+    )
+    this.camera.rotation.z = parallaxRotation
+    this.camera.lookAt(0, 7 + this.mouse.y * 2 + this.scrollY * 5, -100)
 
     const updateLights = (lights: THREE.Group, deltaZ: number, resetCheck: (z: number) => boolean) => {
       lights.children.forEach((light: any) => {
-        light.position.z += deltaZ
+        const scrollEffect = this.scrollY * light.parallaxFactor * 50
+        const waveEffect = Math.sin(time + light.position.x) * 0.5 * this.scrollY
+        light.position.z += deltaZ + scrollEffect * delta
+        light.position.y += waveEffect * delta
         if (light.pointLight) {
           light.pointLight.position.copy(light.position)
           if (lights === this.rightLights) {
             const factor = Math.max(0, 1 - (-light.position.z / this.options.length))
-            light.pointLight.intensity = 0.8 + factor * 1.5
+            const scrollBrightness = 1 + this.scrollY * 2
+            light.pointLight.intensity = (0.8 + factor * 1.5) * scrollBrightness
           }
         }
         if (resetCheck(light.position.z)) light.position.z = light.startZ
@@ -308,8 +315,14 @@ class HyperspeedApp {
     const stickSpeed = (60 + this.speedUp * 40) * delta
     ;[this.leftSticks, this.rightSticks].forEach(group => {
       group.children.forEach((stick: any) => {
-        stick.position.z += stickSpeed
-        if (stick.topLight) stick.topLight.position.z = stick.position.z
+        const scrollEffect = this.scrollY * stick.parallaxFactor * 40
+        const sway = Math.sin(time * 2 + stick.position.z * 0.1) * 0.3 * this.scrollY
+        stick.position.z += stickSpeed + scrollEffect * delta
+        stick.rotation.z = sway
+        if (stick.topLight) {
+          stick.topLight.position.z = stick.position.z
+          stick.topLight.intensity = 0.3 + this.scrollY * 0.5
+        }
         if (stick.position.z > 20) stick.position.z = stick.startZ
       })
     })
@@ -317,11 +330,18 @@ class HyperspeedApp {
     this.scene.children.forEach((child: any) => {
       if (child.userData.isParticles) {
         const pos = child.geometry.attributes.position
+        const scrollEffect = this.scrollY * child.userData.parallaxFactor * 60
+        const rotation = this.scrollY * Math.PI * 0.5
+        child.rotation.y = rotation
         for (let i = 0; i < pos.count; i++) {
-          pos.array[i * 3 + 2] += (50 + this.speedUp * 30) * delta
+          pos.array[i * 3 + 2] += (50 + this.speedUp * 30 + scrollEffect) * delta
+          pos.array[i * 3 + 1] += Math.sin(time + i * 0.1) * 0.02 * this.scrollY
           if (pos.array[i * 3 + 2] > 20) pos.array[i * 3 + 2] = -this.options.length
         }
         pos.needsUpdate = true
+        const mat = child.material as THREE.PointsMaterial
+        mat.size = 0.1 + this.scrollY * 0.3
+        mat.opacity = 0.6 + this.scrollY * 0.3
       }
     })
   }
@@ -352,7 +372,18 @@ export default function CryptoBackground() {
     if (containerRef.current) {
       appRef.current = new HyperspeedApp(containerRef.current, defaultOptions)
     }
+
+    const handleScroll = () => {
+      if (appRef.current) {
+        const scrollProgress = window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)
+        appRef.current.setScroll(scrollProgress)
+      }
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+
     return () => {
+      window.removeEventListener('scroll', handleScroll)
       appRef.current?.dispose()
       appRef.current = null
     }
@@ -361,7 +392,6 @@ export default function CryptoBackground() {
   return (
     <div className="fixed inset-0 -z-10">
       <div ref={containerRef} className="w-full h-full" />
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/50 pointer-events-none" />
     </div>
   )
 }

@@ -23,71 +23,15 @@ interface CryptoDashboardProps {
 
 // Custom hook for scroll animations
 function useScrollAnimation() {
-  const [visibleSections, setVisibleSections] = useState<Set<string>>(new Set());
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const sectionsRef = useRef<Map<string, HTMLElement>>(new Map());
-
-  useEffect(() => {
-    // Prevent scroll restoration on page load
-    if ('scrollRestoration' in history) {
-      history.scrollRestoration = 'manual';
-    }
-
-    // Ensure page starts at top
-    window.scrollTo(0, 0);
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const sectionId = entry.target.getAttribute('data-section');
-          if (!sectionId) return;
-
-          setVisibleSections((prev) => {
-            const newSet = new Set(prev);
-            if (entry.isIntersecting) {
-              newSet.add(sectionId);
-            } else {
-              newSet.delete(sectionId);
-            }
-            return newSet;
-          });
-        });
-      },
-      {
-        threshold: 0.1,
-        rootMargin: '-10% 0px -10% 0px'
-      }
-    );
-
-    // Observe all registered sections
-    sectionsRef.current.forEach((element) => {
-      if (observerRef.current) {
-        observerRef.current.observe(element);
-      }
-    });
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, []);
-
-  const registerSection = useCallback((id: string) => (element: HTMLElement | null) => {
-    if (!element) return;
-    sectionsRef.current.set(id, element);
-    if (observerRef.current) {
-      observerRef.current.observe(element);
-    }
-  }, []);
-
+  const visibleSections = new Set<string>(['hero', 'query', 'chat', 'analysis', 'footer']);
+  const registerSection = (_id: string) => (_el: HTMLElement | null) => {};
   return { visibleSections, registerSection };
 }
 
 export default function CryptoDashboard({ appConfig = {} }: CryptoDashboardProps) {
   const appConfiguration = { ...defaultAppConfig, ...appConfig };
   const { config, isConfigured, getAPIKeysForRequest } = useAPIConfig();
-  const { messages, events, report, loading, typingEffect, run, clear } = useStreamingAnalysis({
+  const { messages, events, report, loading, typingEffect, run, clear, sessionId, clearSession } = useStreamingAnalysis({
     onError: (err: Error) => console.error('analysis error', err),
     apiKeys: shouldUseEnvKeys(appConfiguration, isConfigured) ? undefined : getAPIKeysForRequest()
   });
@@ -204,6 +148,8 @@ export default function CryptoDashboard({ appConfig = {} }: CryptoDashboardProps
             hasMessages={messages.length > 0}
             onRun={runAnalysis}
             onClear={clearAll}
+            sessionId={sessionId}
+            clearSession={clearSession}
           />
         </section>
 

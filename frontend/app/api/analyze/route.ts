@@ -13,9 +13,10 @@ const encode = (evt: StreamEvt) => JSON.stringify(evt) + '\n\n';
 
 // Helper function to safely run analysis with user-provided API keys
 async function runAnalysisWithUserKeys(
-  question: string, 
-  callback: (evt: AnalysisEvent) => void, 
-  userApiKeys?: { openai?: string; gemini?: string; provider?: string }
+  question: string,
+  callback: (evt: AnalysisEvent) => void,
+  userApiKeys?: { openai?: string; gemini?: string; provider?: string },
+  sessionId?: string
 ) {
   // Store original environment variables
   const originalEnv = {
@@ -32,8 +33,8 @@ async function runAnalysisWithUserKeys(
       process.env.GOOGLE_API_KEY = userApiKeys.gemini;
     }
 
-    // Run the analysis
-    await runAnalysis(question, callback);
+    // Run the analysis, forwarding sessionId (if any) so previous context is used
+    await runAnalysis(question, callback, sessionId);
   } finally {
     // Restore original environment variables
     process.env.OPENAI_API_KEY = originalEnv.OPENAI_API_KEY;
@@ -42,7 +43,7 @@ async function runAnalysisWithUserKeys(
 }
 
 export async function POST(req: NextRequest) {
-  const { question, apiKeys } = await req.json();
+  const { question, apiKeys, sessionId } = await req.json();
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
           }
           const outbound: StreamEvt = { ...(evt as any), id: crypto.randomUUID() };
           controller.enqueue(encoder.encode(encode(outbound)));
-        }, apiKeys);
+  }, apiKeys, sessionId);
       } catch (err: any) {
         controller.enqueue(encoder.encode(encode({ type: 'error', id: crypto.randomUUID(), agent: 'root_agent', message: err?.message || String(err), ts: Date.now() })));
       } finally {

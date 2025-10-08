@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { GlassPanel, GlassBadge, GlassCard } from '../glass/GlassComponents';
 import { MessageSquare, Zap, Bot, User, Loader2 } from 'lucide-react';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import type { ChatMessage } from '../hooks/useStreamingAnalysis';
 
 interface ChatPanelProps {
@@ -13,6 +13,8 @@ interface ChatPanelProps {
 
 export function ChatPanel({ messages, loading, typingEffect }: ChatPanelProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -106,45 +108,59 @@ export function ChatPanel({ messages, loading, typingEffect }: ChatPanelProps) {
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -20, scale: 0.95 }}
-                  transition={{ 
-                    duration: 0.4, 
+                  transition={{
+                    duration: 0.4,
                     delay: index * 0.03,
-                    ease: "easeOut"
+                    ease: 'easeOut'
                   }}
+                  onMouseEnter={() => setHovered(msg.id)}
+                  onMouseLeave={() => setHovered((h) => (h === msg.id ? null : h))}
                 >
-                  {msg.role === 'assistant' && (
-                    <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-accent-purple-500/30 to-accent-primary-500/30 flex items-center justify-center border border-accent-purple-400/40 backdrop-blur-sm shadow-sm">
-                      <Bot className="h-5 w-5 text-accent-purple-400" />
+                  {/* Avatar */}
+                  <div className="flex-shrink-0">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${msg.role === 'user' ? 'border-accent-primary-400/40 bg-gradient-to-br from-accent-primary-500/20 to-accent-cyan-500/10' : 'border-accent-purple-400/40 bg-gradient-to-br from-accent-purple-500/10 to-white/6'}`}>
+                      {msg.role === 'user' ? <User className="h-5 w-5 text-accent-primary-400" /> : <Bot className="h-5 w-5 text-accent-purple-400" />}
                     </div>
-                  )}
-                  <motion.div 
-                    className={`max-w-[75%] ${msg.role === 'user' ? 'order-1' : ''}`} 
-                    whileHover={{ scale: 1.01 }} 
+                  </div>
+
+                  <motion.div
+                    className={`max-w-[75%] ${msg.role === 'user' ? 'order-1' : ''} relative`}
+                    whileHover={{ scale: 1.01 }}
                     transition={{ duration: 0.2 }}
                   >
-                    <GlassCard 
-                      variant={msg.role === 'user' ? 'premium' : 'default'} 
-                      className={`p-5 ${
-                        msg.role === 'user' 
-                          ? 'bg-gradient-to-br from-accent-primary-500/25 to-accent-cyan-500/25 border-accent-primary-400/40 shadow-lg shadow-accent-primary-500/10' 
-                          : 'bg-gradient-to-br from-white/8 to-white/12 border-white/25 shadow-sm'
-                      }`}
+                    <GlassCard
+                      variant={msg.role === 'user' ? 'premium' : 'default'}
+                      className={`p-5 ${msg.role === 'user' ? 'bg-gradient-to-br from-accent-primary-500/25 to-accent-cyan-500/25 border-accent-primary-400/40 shadow-lg shadow-accent-primary-500/10' : 'bg-gradient-to-br from-white/8 to-white/12 border-white/25 shadow-sm'}`}
                     >
-                      <p className="text-base leading-relaxed text-base-100 whitespace-pre-wrap">
-                        {msg.content}
-                      </p>
-                      {msg.timestamp && (
-                        <time className="block mt-4 text-xs text-base-400 font-mono opacity-70">
-                          {new Date(msg.timestamp).toLocaleTimeString()}
-                        </time>
-                      )}
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-xs font-semibold text-base-300 uppercase tracking-wider">{msg.role === 'user' ? 'You' : 'Assistant'}</span>
+                            {msg.timestamp && <span className="text-xs text-base-400 font-mono">{new Date(msg.timestamp).toLocaleTimeString()}</span>}
+                          </div>
+                          <p className="text-base leading-relaxed text-base-100 whitespace-pre-wrap">{msg.content}</p>
+                        </div>
+                        {/* Copy button */}
+                        <div className="flex-shrink-0 ml-3 opacity-0 group-hover:opacity-100" style={{ display: hovered === msg.id ? 'block' : 'none' }}>
+                          <button
+                            aria-label="Copy message"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(msg.content);
+                                setCopiedId(msg.id);
+                                setTimeout(() => setCopiedId(null), 1800);
+                              } catch (e) {
+                                console.error('copy failed', e);
+                              }
+                            }}
+                            className="text-xs text-base-300 hover:text-base-100 bg-white/5 hover:bg-white/8 px-2 py-1 rounded"
+                          >
+                            {copiedId === msg.id ? 'Copied' : 'Copy'}
+                          </button>
+                        </div>
+                      </div>
                     </GlassCard>
                   </motion.div>
-                  {msg.role === 'user' && (
-                    <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-accent-primary-500/30 to-accent-cyan-500/30 flex items-center justify-center border border-accent-primary-400/40 backdrop-blur-sm shadow-sm">
-                      <User className="h-5 w-5 text-accent-primary-400" />
-                    </div>
-                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
