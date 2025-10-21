@@ -1,8 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
 	reactStrictMode: true,
-	// Remove externalDir to reduce RSC manifest complexity; transpile ADK for compatibility
-	experimental: {},
+	experimental: {
+		externalDir: true, // allow importing shared source outside frontend (e.g. ../../src)
+	},
 	transpilePackages: ['@iqai/adk'],
 	outputFileTracingRoot: process.cwd(),
 };

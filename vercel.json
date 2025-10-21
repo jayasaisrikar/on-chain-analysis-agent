@@ -1,13 +1,16 @@
 {
   "version": 2,
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm -r build && pnpm --filter ./frontend build",
+  "buildCommand": "cd frontend && pnpm build",
   "devCommand": "pnpm frontend",
   "env": {
     "NEXT_TELEMETRY_DISABLED": "1"
   },
   "functions": {
-    "frontend/app/api/analyze/route.ts": { "runtime": "nodejs20.x", "maxDuration": 60 }
+    "frontend/app/api/analyze/route.ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 60
+    }
   },
   "regions": ["iad1"],
   "headers": [
@@ -17,8 +20,5 @@
         { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" }
       ]
     }
-  ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/frontend/app/api/$1" }
   ]
 }
