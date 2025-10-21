@@ -33,8 +33,8 @@ export function MarkdownRenderer({ content, className, isUser = false }: Markdow
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight, rehypeRaw]}
         components={{
-          // Custom code block component
-          code({ node, inline, className, children, ...props }) {
+          // Custom code block component (typed as any to avoid TS mismatch between react-markdown definitions and actual props)
+          code({ node, inline, className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || '');
             const codeString = String(children).replace(/\n$/, '');
             
@@ -59,7 +59,8 @@ export function MarkdownRenderer({ content, className, isUser = false }: Markdow
                     </Button>
                   </div>
                   <SyntaxHighlighter
-                    style={vscDarkPlus}
+                    // Cast style to any to satisfy type expectation ({ [key:string]: CSSProperties })
+                    style={vscDarkPlus as any}
                     language={match[1]}
                     PreTag="div"
                     className="!mt-0 !rounded-t-none"
