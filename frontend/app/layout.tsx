@@ -1,16 +1,32 @@
 import './globals.css';
-import './highlight.css';
 import { ReactNode } from 'react';
+import { Poppins, JetBrains_Mono } from 'next/font/google';
+import { cn } from '@/lib/utils';
 
-export const metadata = {
-  title: 'Crypto Analysis Agent',
-  description: 'Interactive multi-agent crypto analysis'
+const poppins = Poppins({ 
+  subsets: ['latin'],
+  variable: '--font-sans',
+  weight: ['300', '400', '500', '600', '700'],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+});
+
+export const metadata = { 
+  title: 'On-Chain Analysis Agent', 
+  description: 'Advanced blockchain analysis and cryptocurrency insights powered by AI' 
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen bg-gradient-to-b from-[#06070a] via-[#0b0f17] to-[#0e121b] text-slate-100 antialiased font-sans">
+    <html lang="en" className={cn(poppins.variable, jetbrainsMono.variable, "dark")} suppressHydrationWarning> 
+      <body className={cn(
+        "min-h-screen bg-background font-sans antialiased",
+        poppins.variable,
+        jetbrainsMono.variable
+      )}>
         {children}
       </body>
     </html>

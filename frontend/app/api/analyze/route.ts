@@ -64,7 +64,10 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode(encode(outbound)));
   }, apiKeys, sessionId);
       } catch (err: any) {
-        controller.enqueue(encoder.encode(encode({ type: 'error', id: crypto.randomUUID(), agent: 'root_agent', message: err?.message || String(err), ts: Date.now() })));
+        const message = err?.message || String(err);
+        const stack = err?.stack ? String(err.stack).split('\n').slice(0,6).join('\n') : undefined;
+        const errorPayload: StreamEvt = { type: 'error', id: crypto.randomUUID(), agent: 'root_agent', message: stack ? `${message}\n${stack}` : message, ts: Date.now() } as StreamEvt;
+        controller.enqueue(encoder.encode(encode(errorPayload)));
       } finally {
         controller.close();
       }

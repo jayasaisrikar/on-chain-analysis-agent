@@ -242,11 +242,11 @@ The application is now properly structured according to IQAI ADK best practices 
 The frontend (`/frontend`) now relies on a single backend function `runAnalysis(question, emit)` exported from `src/index.ts`.
 
 ### Flow Overview
-1. User enters a prompt in the UI (`Chat` or `CryptoDashboard` component)
+1. User enters a prompt in the minimal `ChatInterface` component
 2. Frontend sends POST `/api/analyze` with `{ question }`
 3. Route handler calls `runAnalysis` and streams JSONL events over an HTTP `ReadableStream`
-4. UI accumulates `type: "report"` chunks into the final Analysis Report panel
-5. Lifecycle events (`start`, `finish`, `analysis`, `error`, `log`) are rendered in the Agent Timeline
+4. UI accumulates `type: "report"` / `report_chunk` events into the final analysis answer area
+5. Lifecycle events (`start`, `finish`, `analysis`, `error`, `log`, `debug`) are listed in a simple steps panel
 
 ### Event Contract
 Each line-delimited JSON object has shape:
@@ -255,14 +255,15 @@ Each line-delimited JSON object has shape:
 ```
 
 Important event types:
+
 | Type | Purpose |
 |------|---------|
 | start | Agent began execution |
 | finish | Agent completed |
 | analysis | Analysis phase starting |
-| report | Streaming markdown content (append in order) |
+| report / report_chunk | Streaming markdown content (append in order) |
 | log | Informational messages |
-| debug | Optional diagnostic output |
+| debug | Diagnostic output |
 | error | Pipeline or agent error |
 
 ### Adding New Agents

@@ -15,13 +15,14 @@ export const getAnalysisAgent = () => {
   const instruction = dedent`
     You are an expert cryptocurrency analyst creating concise, investor-focused reports. Synthesize the available sub-agent outputs into a sharp, actionable analysis.
 
-## Input Data:
+## Input Data (FIRST STEP: Run the debug_session_data tool with {"inspect":"session"} to load available cached market data into your context):
 - You'll be provided with up to three research inputs: token detection results, market data results, and web search results. Any of these may be missing or empty; if a particular input is not available, state that it is missing once and continue the analysis using the available data.
-- **Market data is available in session state as {market_data_results}** - This contains the most recent, accurate price data fetched by the market-data-agent.
-- **CRITICAL: Always use the market data from {market_data_results} for all price information** - this contains the real-time data with correct prices, market caps, and trading volumes.
+- **Market data may be available in session state as market_data_results** - If this exists, it contains the most recent, accurate price data fetched by the market-data-agent.
+- **CRITICAL: If market_data_results exists, always use it for all price information** - this contains the real-time data with correct prices, market caps, and trading volumes. If it doesn't exist, clearly state that market data is not available and focus on other available information.
 
   ## CRITICAL INSTRUCTIONS:
-1. **Use accurate data**: ALWAYS reference {market_data_results} for current prices, market caps, and volumes. This contains the real-time data.
+0. **Initialization**: Before writing the report, CALL the debug_session_data tool with inspect="session" to retrieve market_data_results.
+1. **Use accurate data**: If market_data_results is available in session state, ALWAYS reference it for current prices, market caps, and volumes as it contains the real-time data. If not available, use data from the research outputs.
 2. **Be concise**: Target 60-70% of typical report length. Every sentence must add value.
 3. **Handle missing data gracefully**: State data limitations ONCE in a brief disclaimer, then focus on available insights
 4. **Be decisive**: Provide clear stances (Buy/Hold/Avoid) with conviction levels
@@ -31,7 +32,7 @@ export const getAnalysisAgent = () => {
 ## Report Structure:
 
 # Executive Summary
-- **Current Status**: Use EXACT prices, 24h changes, market caps, and volumes from {market_data_results}
+- **Current Status**: Use EXACT prices, 24h changes, market caps, and volumes from market_data_results (if available)
 - **Verdict**: Clear stance (Strong Buy/Buy/Hold/Sell/Avoid) with confidence %
 - **Key Insight**: The ONE most important thing to know
 - **Critical Risk**: The ONE biggest concern
@@ -124,7 +125,7 @@ Answer these clearly and everything else is supplementary.
     description: "Provides comprehensive cryptocurrency analysis based on research data from session state",
     instruction: instruction + `
 
-**REMINDER**: The market data is available in session state as {market_data_results}. Access this data structure to get the latest prices, market caps, and trading volumes. DO NOT use any other price data sources - always reference the market_data_results from the research agent output.`,
+**REMINDER**: Market data may be available in session state as market_data_results. If this exists, access this data structure to get the latest prices, market caps, and trading volumes. If market_data_results is not available, clearly state this limitation and work with whatever data is available from the research outputs.`,
     model: env.LLM_MODEL,
     disallowTransferToParent: true,
     disallowTransferToPeers: true,
