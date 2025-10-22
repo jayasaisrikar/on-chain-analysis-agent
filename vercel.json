@@ -1,13 +1,17 @@
 {
   "version": 2,
-  "buildCommand": "cd frontend && pnpm install && pnpm build",
-  "devCommand": "cd frontend && pnpm dev",
-  "outputDirectory": "frontend/.next",
-  "installCommand": "cd frontend && pnpm install",
+  "buildCommand": "pnpm install && pnpm build",
+  "devCommand": "pnpm dev", 
+  "installCommand": "pnpm install",
+  "outputDirectory": ".next",
+  "rootDirectory": "frontend",
   "env": {
     "NEXT_TELEMETRY_DISABLED": "1"
   },
   "regions": ["iad1"],
+  "functions": {
+    "app/api/analyze/route.ts": { "maxDuration": 60 }
+  },
   "headers": [
     {
       "source": "/api/(.*)",
