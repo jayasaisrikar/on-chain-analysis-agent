@@ -3,5 +3,14 @@
     "app/api/analyze/route.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "regions": ["iad1"],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" }
+      ]
+    }
+  ]
 }
