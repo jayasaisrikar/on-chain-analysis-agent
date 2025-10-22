@@ -1,0 +1,26 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Production build
+frontend/.next/cache
+frontend/out
+
+# Environment files (these should be set in Vercel dashboard)
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.DS_Store
+*.tsbuildinfo
+
+# Development files
+.adk-cache
+dist

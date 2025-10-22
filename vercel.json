@@ -1,8 +1,12 @@
 {
   "version": 2,
-  "installCommand": "pnpm install --frozen-lockfile && cd frontend && pnpm install --frozen-lockfile",
-  "buildCommand": "cd frontend && pnpm build",
-  "devCommand": "pnpm frontend",
+  "buildCommand": "cd frontend && pnpm install && pnpm build",
+  "devCommand": "cd frontend && pnpm dev",
+  "outputDirectory": "frontend/.next",
+  "framework": "nextjs",
+  "functions": {
+    "frontend/app/api/analyze/route.ts": { "maxDuration": 60 }
+  },
   "env": {
     "NEXT_TELEMETRY_DISABLED": "1"
   },

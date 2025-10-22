@@ -1,49 +1,32 @@
 {
-	"name": "adk-simple-agent",
+	"name": "on-chain-analysis-agent-fullstack",
 	"version": "0.0.1",
-	"description": "adk-simple-agent is a starter project for creating simple adk agent",
-	"main": "dist/index.js",
+	"description": "A full-stack Next.js application with on-chain analysis agent backend",
 	"private": true,
 	"scripts": {
-		"build": "tsc",
-		"dev": "tsx watch src/index.ts",
-		"start": "node dist/index.js",
-		"clean": "rimraf dist",
-		"prebuild": "npm run clean",
-		"frontend": "pnpm --filter ./frontend... dev || (cd frontend; pnpm dev) || (cd frontend; npm run dev)"
+		"dev": "cd frontend && pnpm dev",
+		"build": "cd frontend && pnpm build",
+		"start": "cd frontend && pnpm start",
+		"lint": "cd frontend && pnpm lint",
+		"install:all": "pnpm install && cd frontend && pnpm install",
+		"frontend": "cd frontend && pnpm dev"
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/IQAICOM/adk-agent-starter.git"
+		"url": "git+https://github.com/jayasaisrikar/on-chain-analysis-agent.git"
 	},
 	"keywords": [
+		"nextjs",
+		"fullstack",
 		"ai",
 		"agent",
-		"mcp",
-		"adk-ts",
-		"IQAI"
+		"crypto",
+		"on-chain-analysis",
+		"adk-ts"
 	],
-	"author": "IQAI",
+	"author": "jayasaisrikar",
 	"license": "MIT",
-	"bugs": {
-		"url": "https://github.com/IQAICOM/adk-agent-starter/issues"
-	},
-	"homepage": "https://github.com/IQAICOM/adk-agent-starter#readme",
-	"dependencies": {
-		"@iqai/adk": "0.3.6",
-		"@opentelemetry/exporter-jaeger": "^2.1.0",
-		"@opentelemetry/exporter-trace-otlp-proto": "^0.206.0",
-		"dedent": "^1.7.0",
-		"dotenv": "^17.2.2",
-		"moment": "^2.30.1",
-		"ts-dedent": "^2.2.0",
-		"zod": "^4.1.5"
-	},
-	"devDependencies": {
-		"@types/moment": "^2.13.0",
-		"@types/node": "^24.3.1",
-		"rimraf": "^6.0.1",
-		"tsx": "^4.20.5",
-		"typescript": "^5.9.2"
-	}
+	"workspaces": [
+		"frontend"
+	]
 }

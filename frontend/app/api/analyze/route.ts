@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { runAnalysis, AnalysisEvent } from '../../../../src';
+import { runAnalysis, AnalysisEvent } from '@backend/index';
 
 export const runtime = 'nodejs';
 
