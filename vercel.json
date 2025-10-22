@@ -1,12 +1,19 @@
 {
   "version": 2,
-  "installCommand": "pnpm install --frozen-lockfile && cd frontend && pnpm install --frozen-lockfile",
-  "buildCommand": "cd frontend && pnpm build",
-  "devCommand": "pnpm frontend",
+  "root": "frontend",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm build",
+  "devCommand": "pnpm dev",
   "env": {
     "NEXT_TELEMETRY_DISABLED": "1"
   },
   "regions": ["iad1"],
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/app/api/$1"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
