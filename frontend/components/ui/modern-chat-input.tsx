@@ -6,6 +6,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Send, Square, Paperclip, Mic, Smile } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { ModelSelector } from "@/components/ui/model-selector";
+import { APIKeyManager } from "@/components/ui/api-key-manager";
+import { AIProvider } from '@/types/api-config';
 
 interface ModernChatInputProps {
   value: string;
@@ -15,6 +18,11 @@ interface ModernChatInputProps {
   onAbort?: () => void;
   placeholder?: string;
   disabled?: boolean;
+  // New props for model and API key management
+  selectedModel?: AIProvider;
+  onModelChange?: (model: AIProvider) => void;
+  onApiKeyUpdate?: (provider: AIProvider, apiKey: string, rememberKey: boolean) => void;
+  hasValidApiKey?: boolean;
 }
 
 export function ModernChatInput({
@@ -24,7 +32,11 @@ export function ModernChatInput({
   loading = false,
   onAbort,
   placeholder = "Ask about crypto tokens, DeFi protocols, or blockchain analysis...",
-  disabled = false
+  disabled = false,
+  selectedModel = 'openai',
+  onModelChange = () => {},
+  onApiKeyUpdate = () => {},
+  hasValidApiKey = false
 }: ModernChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -53,23 +65,30 @@ export function ModernChatInput({
   };
 
   return (
-    <div className="p-6 border-t border-white/10 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl">
-      <div className="max-w-4xl mx-auto">
+    <div className="p-2 border-t border-white/10 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl">
+      <div className="max-w-3xl mx-auto">
         <Card className={cn(
           "relative overflow-hidden transition-all duration-300 bg-white/5 border-white/10 backdrop-blur-sm",
-          isFocused ? "ring-2 ring-purple-500/30 shadow-2xl shadow-purple-500/10 scale-[1.02] bg-white/10" : "shadow-lg hover:bg-white/10",
+          isFocused ? "ring-2 ring-purple-500/30 shadow-xl shadow-purple-500/10 bg-white/8" : "shadow-md hover:bg-white/7",
           loading && "ring-2 ring-violet-500/40 animate-pulse"
         )}>
-          <div className="flex items-end gap-3 p-4">
-            {/* Attachment Button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="flex-shrink-0 h-10 w-10 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 mb-1 transition-all duration-300"
+          {/* Top bar with model selector and API key */}
+          <div className="flex items-center justify-between px-2.5 py-1 border-b border-white/5 bg-white/2">
+            <ModelSelector
+              selectedModel={selectedModel}
+              onModelChange={onModelChange}
               disabled={disabled}
-            >
-              <Paperclip className="h-5 w-5" />
-            </Button>
+            />
+            
+            <APIKeyManager
+              selectedProvider={selectedModel}
+              onApiKeyUpdate={onApiKeyUpdate}
+              disabled={disabled}
+              hasValidKey={hasValidApiKey}
+            />
+          </div>
+          
+          <div className="flex items-end gap-2 p-1.5">
 
             {/* Text Input */}
             <div className="flex-1 min-w-0">
@@ -81,48 +100,21 @@ export function ModernChatInput({
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 placeholder={placeholder}
-                className="min-h-[44px] max-h-[200px] resize-none border-0 shadow-none focus-visible:ring-0 px-0 py-3 text-base bg-transparent text-slate-100 placeholder:text-slate-400"
+                className="min-h-[28px] max-h-[80px] resize-none border-0 shadow-none focus-visible:ring-0 px-0 py-1 text-sm bg-transparent text-slate-100 placeholder:text-slate-400"
                 disabled={disabled}
               />
-              
-              {/* Character Counter */}
-              {value.length > 0 && (
-                <div className="text-xs text-slate-400 mt-1 px-1">
-                  {value.length} characters
-                </div>
-              )}
             </div>
 
             {/* Right Actions */}
-            <div className="flex items-center gap-1 flex-shrink-0 mb-1">
-              {/* Emoji Button */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all duration-300"
-                disabled={disabled}
-              >
-                <Smile className="h-5 w-5" />
-              </Button>
-
-              {/* Voice Button */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all duration-300"
-                disabled={disabled}
-              >
-                <Mic className="h-5 w-5" />
-              </Button>
-
+            <div className="flex items-center gap-1 flex-shrink-0">
               {/* Submit/Stop Button */}
               {loading ? (
                 <Button
                   onClick={onAbort}
                   size="icon"
-                  className="h-10 w-10 bg-red-500/20 text-red-400 hover:text-red-300 hover:bg-red-500/30 transition-all duration-300 animate-pulse"
+                  className="h-7 w-7 bg-red-500/20 text-red-400 hover:text-red-300 hover:bg-red-500/30 transition-all duration-200 animate-pulse"
                 >
-                  <Square className="h-5 w-5" />
+                  <Square className="h-3.5 w-3.5" />
                 </Button>
               ) : (
                 <Button
@@ -130,13 +122,16 @@ export function ModernChatInput({
                   size="icon"
                   disabled={!value.trim() || disabled}
                   className={cn(
-                    "h-10 w-10 transition-all duration-300",
-                    value.trim() 
-                      ? "bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white scale-100 shadow-lg shadow-purple-500/25" 
-                      : "bg-slate-700 text-slate-400 scale-95 opacity-50"
+                    "h-7 w-7 transition-all duration-200",
+                    value.trim()
+                      ? hasValidApiKey
+                        ? "bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white shadow-md shadow-purple-500/20"
+                        : "bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/20"
+                      : "bg-slate-700 text-slate-400 opacity-50"
                   )}
+                  title={!hasValidApiKey ? "Set up API key first" : "Send message"}
                 >
-                  <Send className="h-5 w-5" />
+                  <Send className="h-3.5 w-3.5" />
                 </Button>
               )}
             </div>
@@ -150,13 +145,14 @@ export function ModernChatInput({
           )}
         </Card>
 
-        {/* Helper Text */}
-        <div className="mt-3 px-2">
-          <p className="text-xs text-slate-400 text-center">
-            Press <kbd className="px-2 py-1 bg-white/10 border border-white/20 rounded text-xs text-slate-300">Enter</kbd> to send, 
-            <kbd className="px-2 py-1 bg-white/10 border border-white/20 rounded text-xs text-slate-300 ml-1">Shift + Enter</kbd> for new line
-          </p>
-        </div>
+        {/* Status indicator */}
+        {!hasValidApiKey && (
+          <div className="mt-1 px-1">
+            <p className="text-xs text-amber-400/80 text-center">
+              Click the key icon above to set up your API key
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

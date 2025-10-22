@@ -15,7 +15,8 @@ const encode = (evt: StreamEvt) => JSON.stringify(evt) + '\n\n';
 async function runAnalysisWithUserKeys(
   question: string,
   callback: (evt: AnalysisEvent) => void,
-  userApiKeys?: { openai?: string; gemini?: string; provider?: string },
+  model?: 'openai' | 'gemini',
+  apiKey?: string,
   sessionId?: string
 ) {
   // Store original environment variables
@@ -25,12 +26,11 @@ async function runAnalysisWithUserKeys(
   };
 
   try {
-    // Temporarily set user API keys if provided
-    if (userApiKeys?.openai && userApiKeys.provider === 'openai') {
-      process.env.OPENAI_API_KEY = userApiKeys.openai;
-    }
-    if (userApiKeys?.gemini && userApiKeys.provider === 'gemini') {
-      process.env.GOOGLE_API_KEY = userApiKeys.gemini;
+    // Temporarily set user API key if provided
+    if (apiKey && model === 'openai') {
+      process.env.OPENAI_API_KEY = apiKey;
+    } else if (apiKey && model === 'gemini') {
+      process.env.GOOGLE_API_KEY = apiKey;
     }
 
     // Run the analysis, forwarding sessionId (if any) so previous context is used
@@ -43,7 +43,7 @@ async function runAnalysisWithUserKeys(
 }
 
 export async function POST(req: NextRequest) {
-  const { question, apiKeys, sessionId } = await req.json();
+  const { question, model, apiKey, sessionId } = await req.json();
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
           }
           const outbound: StreamEvt = { ...(evt as any), id: crypto.randomUUID() };
           controller.enqueue(encoder.encode(encode(outbound)));
-  }, apiKeys, sessionId);
+  }, model, apiKey, sessionId);
       } catch (err: any) {
         const message = err?.message || String(err);
         const stack = err?.stack ? String(err.stack).split('\n').slice(0,6).join('\n') : undefined;

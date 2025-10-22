@@ -1,7 +1,34 @@
-export interface AnalysisEvent { type: 'start'|'finish'|'log'|'analysis'|'report_chunk'|'error'|'debug'|'report'; agent?: string; message?: string; data?: any; ts: number; }
-interface StreamOptions { signal?: AbortSignal; sessionId?: string; apiKeys?: { openai?: string; gemini?: string; provider?: string }; onEvent: (evt: AnalysisEvent) => void; onDone?: () => void; onError?: (err: Error) => void; }
+import { AIProvider } from '@/types/api-config';
+
+export interface AnalysisEvent { 
+  type: 'start'|'finish'|'log'|'analysis'|'report_chunk'|'error'|'debug'|'report'; 
+  agent?: string; 
+  message?: string; 
+  data?: any; 
+  ts: number; 
+}
+
+interface StreamOptions { 
+  signal?: AbortSignal; 
+  sessionId?: string; 
+  model?: AIProvider;
+  apiKey?: string;
+  onEvent: (evt: AnalysisEvent) => void; 
+  onDone?: () => void; 
+  onError?: (err: Error) => void; 
+}
 export async function streamAnalysis(question: string, opts: StreamOptions) {
-  const res = await fetch('/api/analyze', { method: 'POST', signal: opts.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, apiKeys: opts.apiKeys, sessionId: opts.sessionId }) });
+  const res = await fetch('/api/analyze', { 
+    method: 'POST', 
+    signal: opts.signal, 
+    headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify({ 
+      question, 
+      sessionId: opts.sessionId,
+      model: opts.model || 'openai',
+      apiKey: opts.apiKey
+    }) 
+  });
   if (!res.body) throw new Error('No response body');
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

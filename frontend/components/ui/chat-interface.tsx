@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/main-layout';
 import { ModernChatMessages } from '@/components/ui/modern-chat-messages';
 import { ModernChatInput } from '@/components/ui/modern-chat-input';
 import { ChatMessage } from '@/components/ui/message';
 import { streamAnalysis } from '../../lib/agent-client';
+import { AIProvider, APIKeySettings } from '@/types/api-config';
+import APIKeyStorage from '@/utils/api-key-storage';
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -15,6 +17,51 @@ export default function ChatInterface() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID()); // Generate persistent session ID
   const analysisBuffer = useRef<string>('');
+  
+  // New state for model and API key management
+  const [selectedModel, setSelectedModel] = useState<AIProvider>('openai');
+  const [apiKeys, setApiKeys] = useState<{ [key in AIProvider]?: string }>({});
+  const [hasValidApiKey, setHasValidApiKey] = useState(false);
+
+  // Load stored API settings on mount
+  useEffect(() => {
+    const loadStoredSettings = async () => {
+      try {
+        const settings = await APIKeyStorage.loadSettings();
+        if (settings) {
+          setSelectedModel(settings.selectedProvider);
+          
+          const keys: { [key in AIProvider]?: string } = {};
+          if (settings.openaiKey) keys.openai = settings.openaiKey;
+          if (settings.geminiKey) keys.gemini = settings.geminiKey;
+          
+          setApiKeys(keys);
+          setHasValidApiKey(!!(keys[settings.selectedProvider]));
+        }
+      } catch (error) {
+        console.error('Failed to load API settings:', error);
+      }
+    };
+    
+    loadStoredSettings();
+  }, []);
+
+  // Update hasValidApiKey when model changes
+  useEffect(() => {
+    setHasValidApiKey(!!(apiKeys[selectedModel]));
+  }, [selectedModel, apiKeys]);
+
+  const handleModelChange = (model: AIProvider) => {
+    setSelectedModel(model);
+  };
+
+  const handleApiKeyUpdate = (provider: AIProvider, apiKey: string, rememberKey: boolean) => {
+    setApiKeys(prev => ({ ...prev, [provider]: apiKey }));
+    
+    if (provider === selectedModel) {
+      setHasValidApiKey(!!apiKey);
+    }
+  };
 
   const startNewSession = useCallback(() => {
     setSessionId(crypto.randomUUID());
@@ -32,7 +79,13 @@ export default function ChatInterface() {
 
   const handleSend = useCallback(async () => {
     const question = input.trim();
-    if (!question || loading) return;
+    if (!question || loading || !hasValidApiKey) return;
+
+    const currentApiKey = apiKeys[selectedModel];
+    if (!currentApiKey) {
+      append({ role: 'error', content: 'Please set up your API key for the selected model first.' });
+      return;
+    }
 
     setInput('');
     append({ role: 'user', content: question });
@@ -63,6 +116,8 @@ export default function ChatInterface() {
       await streamAnalysis(question, {
         signal: abort.signal,
         sessionId: sessionId, // Pass session ID for context persistence
+        model: selectedModel,
+        apiKey: currentApiKey,
         onEvent: (evt) => {
           if ((evt.type === 'report_chunk' || evt.type === 'report') && typeof evt.data === 'string') {
             analysisBuffer.current += evt.data;
@@ -101,7 +156,7 @@ export default function ChatInterface() {
       setLoading(false);
       setController(null);
     }
-  }, [input, loading]);
+  }, [input, loading, selectedModel, apiKeys, hasValidApiKey]);
 
   const handleAbort = () => {
     controller?.abort();
@@ -152,6 +207,10 @@ export default function ChatInterface() {
               loading={loading}
               onAbort={handleAbort}
               disabled={false}
+              selectedModel={selectedModel}
+              onModelChange={handleModelChange}
+              onApiKeyUpdate={handleApiKeyUpdate}
+              hasValidApiKey={hasValidApiKey}
             />
           ) : (
             <div className="p-6 border-t border-white/10 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl">
