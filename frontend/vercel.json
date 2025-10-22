@@ -1,15 +1,32 @@
 {
   "framework": "nextjs",
   "functions": {
-    "app/api/analyze/route.ts": { "maxDuration": 60 }
+    "app/api/**/*.ts": { 
+      "maxDuration": 60,
+      "runtime": "nodejs18.x"
+    }
   },
-  "build": { "env": { "NEXT_TELEMETRY_DISABLED": "1" } },
+  "build": { 
+    "env": { 
+      "NEXT_TELEMETRY_DISABLED": "1",
+      "NODE_ENV": "production"
+    } 
+  },
   "regions": ["iad1"],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api/:path*"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" }
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
       ]
     }
   ]

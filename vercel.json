@@ -1,19 +1,21 @@
 {
   "version": 2,
-  "root": "frontend",
+  "buildCommand": "cd frontend && pnpm build",
+  "outputDirectory": "frontend/out",
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm build",
-  "devCommand": "pnpm dev",
-  "env": {
-    "NEXT_TELEMETRY_DISABLED": "1"
+  "devCommand": "cd frontend && pnpm dev",
+  "framework": "nextjs",
+  "build": {
+    "env": {
+      "NEXT_TELEMETRY_DISABLED": "1"
+    }
+  },
+  "functions": {
+    "frontend/app/api/**/*.ts": {
+      "maxDuration": 60
+    }
   },
   "regions": ["iad1"],
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/app/api/$1"
-    }
-  ],
   "headers": [
     {
       "source": "/api/(.*)",
