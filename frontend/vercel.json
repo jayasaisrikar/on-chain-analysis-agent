@@ -5,6 +5,8 @@
     }
   },
   "regions": ["iad1"],
+  "buildCommand": "next build",
+  "installCommand": "pnpm install --frozen-lockfile",
   "headers": [
     {
       "source": "/api/(.*)",
