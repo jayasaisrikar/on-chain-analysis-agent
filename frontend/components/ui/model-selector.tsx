@@ -20,14 +20,14 @@ interface ModelSelectorProps {
 
 const modelConfig = {
   openai: {
-    name: 'GPT-4',
+    name: 'GPT-4o',
     icon: Zap,
     color: 'text-emerald-400',
     bgColor: 'bg-emerald-500/10',
     hoverColor: 'hover:bg-emerald-500/20'
   },
   gemini: {
-    name: 'Gemini Pro',
+    name: 'Gemini 2.5 Pro',
     icon: Brain,
     color: 'text-blue-400',
     bgColor: 'bg-blue-500/10',
