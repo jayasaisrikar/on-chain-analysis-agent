@@ -1,9 +1,7 @@
 {
-  "framework": "nextjs",
   "functions": {
     "app/api/analyze/route.ts": { "maxDuration": 60 }
   },
-  "build": { "env": { "NEXT_TELEMETRY_DISABLED": "1" } },
   "regions": ["iad1"],
   "headers": [
     {

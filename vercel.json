@@ -3,10 +3,7 @@
   "buildCommand": "cd frontend && pnpm install && pnpm build",
   "devCommand": "cd frontend && pnpm dev",
   "outputDirectory": "frontend/.next",
-  "framework": "nextjs",
-  "functions": {
-    "frontend/app/api/analyze/route.ts": { "maxDuration": 60 }
-  },
+  "installCommand": "cd frontend && pnpm install",
   "env": {
     "NEXT_TELEMETRY_DISABLED": "1"
   },
