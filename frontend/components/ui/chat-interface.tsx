@@ -8,6 +8,7 @@ import { ChatMessage } from '@/components/ui/message';
 import { streamAnalysis } from '../../lib/agent-client';
 import { AIProvider, APIKeySettings } from '@/types/api-config';
 import APIKeyStorage from '@/utils/api-key-storage';
+import { useToast } from '@/hooks/use-toast';
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -17,6 +18,7 @@ export default function ChatInterface() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID()); // Generate persistent session ID
   const analysisBuffer = useRef<string>('');
+  const { toast } = useToast();
   
   // New state for model and API key management
   const [selectedModel, setSelectedModel] = useState<AIProvider>('openai');
@@ -53,6 +55,15 @@ export default function ChatInterface() {
 
   const handleModelChange = (model: AIProvider) => {
     setSelectedModel(model);
+    
+    // Show helpful tips when switching models
+    if (model === 'gemini') {
+      toast({
+        title: "⚠️ Gemini Rate Limits",
+        description: "Gemini free tier: 15 requests/minute. Switch to OpenAI for better reliability.",
+        duration: 5000,
+      });
+    }
   };
 
   const handleApiKeyUpdate = (provider: AIProvider, apiKey: string, rememberKey: boolean) => {
@@ -85,6 +96,14 @@ export default function ChatInterface() {
     if (!currentApiKey) {
       append({ role: 'error', content: 'Please set up your API key for the selected model first.' });
       return;
+    }
+
+    // Check for rate limiting hints
+    if (selectedModel === 'gemini') {
+      append({ 
+        role: 'system', 
+        content: '⚠️ Using Gemini API (15 req/min limit). Switch to OpenAI for better reliability.' 
+      });
     }
 
     setInput('');

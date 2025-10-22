@@ -64,9 +64,30 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode(encode(outbound)));
   }, model, apiKey, sessionId);
       } catch (err: any) {
-        const message = err?.message || String(err);
-        const stack = err?.stack ? String(err.stack).split('\n').slice(0,6).join('\n') : undefined;
-        const errorPayload: StreamEvt = { type: 'error', id: crypto.randomUUID(), agent: 'root_agent', message: stack ? `${message}\n${stack}` : message, ts: Date.now() } as StreamEvt;
+        console.error('Analysis error:', err);
+        
+        let message = err?.message || String(err);
+        let userMessage = message;
+        
+        // Handle specific API quota errors with user-friendly messages
+        if (message.includes('quota') || message.includes('RESOURCE_EXHAUSTED') || err?.status === 429) {
+          if (model === 'gemini') {
+            userMessage = `⚠️ Gemini API quota exceeded. This usually happens with:\n• Free tier limits (15 requests/minute)\n• New API keys needing time to activate\n• Account billing issues\n\n💡 Solutions:\n• Switch to OpenAI GPT-4 model\n• Wait 1-2 minutes and try again\n• Check your Google AI Studio billing\n• Verify API key is activated`;
+          } else {
+            userMessage = `⚠️ OpenAI API quota exceeded. Please check your billing and usage limits at platform.openai.com`;
+          }
+        } else if (message.includes('API_KEY') || message.includes('authentication') || message.includes('unauthorized')) {
+          userMessage = `🔑 API Key Error: Please verify your ${model === 'gemini' ? 'Gemini' : 'OpenAI'} API key is correct and active.`;
+        }
+        
+        const errorPayload: StreamEvt = { 
+          type: 'error', 
+          id: crypto.randomUUID(), 
+          agent: 'root_agent', 
+          message: userMessage,
+          ts: Date.now() 
+        } as StreamEvt;
+        
         controller.enqueue(encoder.encode(encode(errorPayload)));
       } finally {
         controller.close();

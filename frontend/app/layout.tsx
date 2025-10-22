@@ -2,6 +2,7 @@ import './globals.css';
 import { ReactNode } from 'react';
 import { Poppins, JetBrains_Mono } from 'next/font/google';
 import { cn } from '@/lib/utils';
+import { Toaster } from '@/components/ui/toaster';
 
 const poppins = Poppins({ 
   subsets: ['latin'],
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         jetbrainsMono.variable
       )}>
         {children}
+        <Toaster />
       </body>
     </html>
   );
