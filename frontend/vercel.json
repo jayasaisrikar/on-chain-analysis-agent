@@ -7,10 +7,6 @@
   "regions": ["iad1"],
   "buildCommand": "next build",
   "installCommand": "pnpm install --frozen-lockfile",
-  "env": {
-    "NEXT_DISABLE_ESLINT": "1",
-    "NEXT_TELEMETRY_DISABLED": "1"
-  },
   "headers": [
     {
       "source": "/api/(.*)",
